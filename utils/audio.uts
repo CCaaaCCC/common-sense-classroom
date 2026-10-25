@@ -1,0 +1,53 @@
+import { state } from '../store/index.uts'
+
+const ctx = uni.createInnerAudioContext()
+let token = 0
+let started = false
+let handler: ((ok: boolean) => void) | null = null
+
+function finish(ok: boolean) {
+	if (!started) return
+	started = false
+	const h = handler
+	handler = null
+	if (h != null) h(ok)
+}
+
+ctx.onEnded(() => {
+	finish(true)
+})
+
+ctx.onError(() => {
+	finish(false)
+})
+
+export function play(src: string, done: (ok: boolean) => void) {
+	token = token + 1
+	const my = token
+	handler = done
+	started = true
+	ctx.stop()
+	ctx.volume = state.volume
+	ctx.playbackRate = 0.8
+	ctx.src = src
+	setTimeout(() => {
+		if (my != token || !started) return
+		ctx.play()
+	}, 30)
+}
+
+export function stop() {
+	token = token + 1
+	started = false
+	handler = null
+	ctx.stop()
+}
+
+export function isPlaying(): boolean {
+	return started
+}
+
+export function destroy() {
+	stop()
+	ctx.destroy()
+}

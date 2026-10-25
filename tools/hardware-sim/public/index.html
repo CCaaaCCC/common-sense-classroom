@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+	<title>硬件模拟器 · 按钮板</title>
+	<style>
+		* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+		body {
+			margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+			font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+			background: #f6f8fb; color: #24313f; user-select: none;
+		}
+		header { padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
+		.dot { width: 10px; height: 10px; border-radius: 50%; background: #c9d8ea; }
+		.dot.on { background: #4cc38a; }
+		.title { font-size: 18px; font-weight: 600; }
+		.state { margin-left: auto; font-size: 14px; color: #8a9bb0; }
+		main { flex: 1; display: flex; gap: 16px; padding: 8px 16px 20px; }
+		button {
+			flex: 1; border: 2px solid #e3e9f2; border-radius: 24px; background: #fff;
+			font-size: 40px; font-weight: 600; color: #24313f; cursor: pointer;
+			box-shadow: 0 6px 18px rgba(31, 45, 61, 0.06);
+			transition: transform .08s ease, border-color .12s ease, background .12s ease;
+		}
+		button:active { transform: scale(0.97); border-color: #7fb2ef; background: #e8f3ff; }
+		button:disabled { opacity: .45; }
+		footer { padding: 0 16px 18px; display: flex; gap: 10px; }
+		footer button { font-size: 15px; font-weight: 500; height: 44px; border-radius: 12px; }
+		.log {
+			margin: 0 16px 16px; height: 84px; overflow: hidden; background: #fff;
+			border: 1px solid #e8eef6; border-radius: 12px; padding: 8px 12px;
+			font-size: 12px; line-height: 1.5; color: #6b7c90; font-family: ui-monospace, Consolas, monospace;
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<div class="dot" id="dot"></div>
+		<div class="title">硬件模拟器</div>
+		<div class="state" id="state">未连接</div>
+	</header>
+
+	<main>
+		<button id="btnA" disabled>A<br /><span style="font-size:16px;color:#8a9bb0">按左</span></button>
+		<button id="btnB" disabled>B<br /><span style="font-size:16px;color:#8a9bb0">按右</span></button>
+	</main>
+
+	<footer>
+		<button id="btnReward" disabled style="flex:1">补发「答对」反馈</button>
+	</footer>
+
+	<div class="log" id="log"></div>
+
+	<script>
+		const wsUrl = 'ws://' + location.hostname + ':8081/?role=pad'
+		const dot = document.getElementById('dot')
+		const stateEl = document.getElementById('state')
+		const logEl = document.getElementById('log')
+		const btnA = document.getElementById('btnA')
+		const btnB = document.getElementById('btnB')
+		const btnReward = document.getElementById('btnReward')
+
+		let ws = null
+
+		function log(text) {
+			const line = document.createElement('div')
+			line.textContent = text
+			logEl.prepend(line)
+			while (logEl.childElementCount > 4) logEl.lastElementChild.remove()
+		}
+
+		function send(act) {
+			if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'pad', act }))
+		}
+
+		function setEnabled(on) {
+			btnA.disabled = !on
+			btnB.disabled = !on
+			btnReward.disabled = !on
+		}
+
+		function connect() {
+			ws = new WebSocket(wsUrl)
+			ws.onopen = () => {
+				dot.classList.add('on')
+				stateEl.textContent = '已连接'
+				setEnabled(true)
+				log('connected to ' + wsUrl)
+			}
+			ws.onclose = () => {
+				dot.classList.remove('on')
+				stateEl.textContent = '未连接，重试中…'
+				setEnabled(false)
+				log('closed, retry in 1.5s')
+				setTimeout(connect, 1500)
+			}
+			ws.onerror = () => log('ws error')
+			ws.onmessage = (ev) => {
+				let msg = null
+				try { msg = JSON.parse(ev.data) } catch { return }
+				if (msg.t === 'state') {
+					stateEl.textContent = msg.phase + (msg.qid ? ' · ' + msg.qid : '')
+					btnA.style.opacity = msg.phase === 'armed' ? '1' : '0.5'
+					btnB.style.opacity = msg.phase === 'armed' ? '1' : '0.5'
+				}
+			}
+		}
+
+		btnA.onclick = () => send('a')
+		btnB.onclick = () => send('b')
+		btnReward.onclick = () => send('reward')
+
+		connect()
+	</script>
+</body>
+</html>

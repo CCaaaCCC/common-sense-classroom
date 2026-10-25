@@ -1,0 +1,251 @@
+import { Scene, Question, Option } from './types.uts'
+
+const BASE = '/static'
+
+export const SCENES: Scene[] = [
+	{
+		id: 'class',
+		name: '教室',
+		cover: BASE + '/scenes/cover_class.jpg',
+		questions: [
+			{
+				id: 'CL-01',
+				kind: 'identify',
+				teachText: '上课了，要坐回自己的座位。',
+				teachAudio: BASE + '/audio/class/CL-01_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-01_teach.jpg',
+				promptText: '上课了，要坐在哪里？',
+				promptAudio: BASE + '/audio/class/CL-01_prompt.mp3',
+				options: [
+					{ id: 'a', label: '坐在自己的座位上', image: BASE + '/scenes/class/CL-01_a.jpg' } as Option,
+					{ id: 'b', label: '站在讲台上', image: BASE + '/scenes/class/CL-01_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-02',
+				kind: 'judge',
+				teachText: '老师说，把书放到桌子上。',
+				teachAudio: BASE + '/audio/class/CL-02_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-02_stem.jpg',
+				promptText: '这样做，对吗？',
+				promptAudio: BASE + '/audio/class/CL-02_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-03',
+				kind: 'identify',
+				teachText: '老师说话的时候，眼睛看老师。',
+				teachAudio: BASE + '/audio/class/CL-03_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-03_teach.jpg',
+				promptText: '老师说话，眼睛看哪里？',
+				promptAudio: BASE + '/audio/class/CL-03_prompt.mp3',
+				options: [
+					{ id: 'a', label: '看老师', image: BASE + '/scenes/class/CL-03_a.jpg' } as Option,
+					{ id: 'b', label: '看窗外', image: BASE + '/scenes/class/CL-03_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-04',
+				kind: 'judge',
+				teachText: '上课的时候，要坐在座位上。',
+				teachAudio: BASE + '/audio/class/CL-04_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-04_stem.jpg',
+				promptText: '上课可以随便站起来走吗？',
+				promptAudio: BASE + '/audio/class/CL-04_prompt.mp3',
+				options: [
+					{ id: 'a', label: '可以', image: '' } as Option,
+					{ id: 'b', label: '不可以', image: '' } as Option
+				],
+				answerId: 'b'
+			} as Question,
+			{
+				id: 'CL-05',
+				kind: 'identify',
+				teachText: '想回答问题，先举手。',
+				teachAudio: BASE + '/audio/class/CL-05_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-05_teach.jpg',
+				promptText: '想回答问题，要先做什么？',
+				promptAudio: BASE + '/audio/class/CL-05_prompt.mp3',
+				options: [
+					{ id: 'a', label: '先举手', image: BASE + '/scenes/class/CL-05_a.jpg' } as Option,
+					{ id: 'b', label: '直接大声喊', image: BASE + '/scenes/class/CL-05_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-06',
+				kind: 'judge',
+				teachText: '下课了，把文具收进书包。',
+				teachAudio: BASE + '/audio/class/CL-06_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-06_stem.jpg',
+				promptText: '下课把文具收进书包，对吗？',
+				promptAudio: BASE + '/audio/class/CL-06_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-07',
+				kind: 'identify',
+				teachText: '想上厕所，先举手告诉老师。',
+				teachAudio: BASE + '/audio/class/CL-07_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-07_teach.jpg',
+				promptText: '上课想上厕所，怎么办？',
+				promptAudio: BASE + '/audio/class/CL-07_prompt.mp3',
+				options: [
+					{ id: 'a', label: '举手告诉老师', image: BASE + '/scenes/class/CL-07_a.jpg' } as Option,
+					{ id: 'b', label: '自己跑出去', image: BASE + '/scenes/class/CL-07_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CL-08',
+				kind: 'judge',
+				teachText: '别人说话时，要等一等。',
+				teachAudio: BASE + '/audio/class/CL-08_teach.mp3',
+				teachImage: BASE + '/scenes/class/CL-08_stem.jpg',
+				promptText: '同学说话时大声插话，对吗？',
+				promptAudio: BASE + '/audio/class/CL-08_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'b'
+			} as Question
+		]
+	} as Scene,
+	{
+		id: 'cross',
+		name: '过马路',
+		cover: BASE + '/scenes/cover_cross.jpg',
+		questions: [
+			{
+				id: 'CR-01',
+				kind: 'identify',
+				teachText: '过马路，要走斑马线。',
+				teachAudio: BASE + '/audio/cross/CR-01_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-01_teach.jpg',
+				promptText: '过马路，走哪里？',
+				promptAudio: BASE + '/audio/cross/CR-01_prompt.mp3',
+				options: [
+					{ id: 'a', label: '斑马线', image: BASE + '/scenes/cross/CR-01_a.jpg' } as Option,
+					{ id: 'b', label: '马路中间', image: BASE + '/scenes/cross/CR-01_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-02',
+				kind: 'judge',
+				teachText: '红灯停，绿灯行。',
+				teachAudio: BASE + '/audio/cross/CR-02_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-02_stem.jpg',
+				promptText: '红灯亮了，现在过马路对吗？',
+				promptAudio: BASE + '/audio/cross/CR-02_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'b'
+			} as Question,
+			{
+				id: 'CR-03',
+				kind: 'identify',
+				teachText: '过马路前，先看左右两边。',
+				teachAudio: BASE + '/audio/cross/CR-03_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-03_teach.jpg',
+				promptText: '过马路前，先做什么？',
+				promptAudio: BASE + '/audio/cross/CR-03_prompt.mp3',
+				options: [
+					{ id: 'a', label: '看看左右两边', image: BASE + '/scenes/cross/CR-03_a.jpg' } as Option,
+					{ id: 'b', label: '直接跑过去', image: BASE + '/scenes/cross/CR-03_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-04',
+				kind: 'judge',
+				teachText: '过马路，要牵着大人的手。',
+				teachAudio: BASE + '/audio/cross/CR-04_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-04_stem.jpg',
+				promptText: '牵着大人的手过马路，对吗？',
+				promptAudio: BASE + '/audio/cross/CR-04_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-05',
+				kind: 'identify',
+				teachText: '绿灯亮了才能走。',
+				teachAudio: BASE + '/audio/cross/CR-05_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-05_teach.jpg',
+				promptText: '过马路，看哪个灯？',
+				promptAudio: BASE + '/audio/cross/CR-05_prompt.mp3',
+				options: [
+					{ id: 'a', label: '绿灯', image: BASE + '/scenes/cross/CR-05_a.jpg' } as Option,
+					{ id: 'b', label: '红灯', image: BASE + '/scenes/cross/CR-05_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-06',
+				kind: 'judge',
+				teachText: '绿灯亮了，也要先看左右。',
+				teachAudio: BASE + '/audio/cross/CR-06_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-06_stem.jpg',
+				promptText: '绿灯亮了，也要先看左右，对吗？',
+				promptAudio: BASE + '/audio/cross/CR-06_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-07',
+				kind: 'identify',
+				teachText: '不能翻护栏，要走斑马线。',
+				teachAudio: BASE + '/audio/cross/CR-07_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-07_teach.jpg',
+				promptText: '马路中间有护栏，怎么过？',
+				promptAudio: BASE + '/audio/cross/CR-07_prompt.mp3',
+				options: [
+					{ id: 'a', label: '走斑马线绕过去', image: BASE + '/scenes/cross/CR-07_a.jpg' } as Option,
+					{ id: 'b', label: '翻护栏过去', image: BASE + '/scenes/cross/CR-07_b.jpg' } as Option
+				],
+				answerId: 'a'
+			} as Question,
+			{
+				id: 'CR-08',
+				kind: 'judge',
+				teachText: '过马路要专心，不看手机。',
+				teachAudio: BASE + '/audio/cross/CR-08_teach.mp3',
+				teachImage: BASE + '/scenes/cross/CR-08_stem.jpg',
+				promptText: '一边看手机一边过马路，对吗？',
+				promptAudio: BASE + '/audio/cross/CR-08_prompt.mp3',
+				options: [
+					{ id: 'a', label: '对', image: '' } as Option,
+					{ id: 'b', label: '不对', image: '' } as Option
+				],
+				answerId: 'b'
+			} as Question
+		]
+	} as Scene
+]
+
+export function sceneOf(id: string): Scene {
+	for (let i = 0; i < SCENES.length; i++) {
+		if (SCENES[i].id == id) return SCENES[i]
+	}
+	return SCENES[0]
+}

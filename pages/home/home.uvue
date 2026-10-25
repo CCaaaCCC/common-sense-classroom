@@ -1,0 +1,285 @@
+<template>
+	<view class="page">
+		<view class="top" @click="goProfiles">
+			<view class="avatar">
+				<text class="avatar-t">{{ avatarText }}</text>
+			</view>
+			<view class="who">
+				<text class="name">{{ activeName }}</text>
+				<text class="sub">已训练 {{ trainCount }} 次</text>
+			</view>
+			<text class="switch">切换</text>
+		</view>
+
+		<view class="menu">
+			<view class="btn-primary" :class="{ off: !hasChild }" @click="start">
+				<text class="btn-primary-t">开始训练</text>
+			</view>
+			<view class="btn-normal" @click="goBook">
+				<text class="btn-normal-t">我的绘本</text>
+			</view>
+		</view>
+
+		<view class="hotzone" @touchstart="lpDown" @touchend="lpEnd" @touchcancel="lpEnd" @touchmove="lpMove">
+			<view class="ring">
+				<view v-for="d in bars" :key="d.i" class="bar" :style="d.style"></view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref, computed, watch } from 'vue'
+	import { state } from '../../store/index.uts'
+	import { Profile } from '../../data/types.uts'
+	import { loadProfiles, getActiveChildId, setActiveChildId, loadTrials, loadSettings } from '../../utils/storage.uts'
+	import { connect } from '../../utils/device.uts'
+
+	type Bar = { i: number, style: string }
+
+	const activeName = ref('还没有档案')
+	const avatarText = ref('?')
+	const trainCount = ref(0)
+	const hasChild = ref(false)
+	const progress = ref(0)
+
+	const bars = computed(() => {
+		const list: Bar[] = []
+		for (let i = 0; i < 36; i++) {
+			const on = i < progress.value
+			list.push({
+				i: i,
+				style: 'transform: rotate(' + (i * 10).toString() + 'deg) translateY(-34px); opacity:' + (on ? '1' : '0.15')
+			} as Bar)
+		}
+		return list
+	})
+
+	let autoConnected = false
+
+	onMounted(() => {
+		loadSettings()
+		refresh()
+		// 静默尝试连接硬件；失败不影响触屏使用
+		if (!autoConnected && state.deviceIp != '') {
+			autoConnected = true
+			connect(state.deviceIp)
+		}
+	})
+
+	// Vapor 下没有 onShow，从档案页返回不会重新挂载，靠版本号触发刷新
+	watch(() => state.profilesVersion, () => {
+		refresh()
+	})
+
+	function refresh() {
+		const list = loadProfiles()
+		let id = getActiveChildId()
+		if (id == '' && list.length > 0) {
+			id = list[0].id
+			setActiveChildId(id)
+		}
+		state.activeChildId = id
+		let name = ''
+		let avatar = '?'
+		for (let i = 0; i < list.length; i++) {
+			if (list[i].id == id) {
+				name = list[i].name
+				avatar = list[i].name.length > 0 ? list[i].name.substring(0, 1) : '?'
+			}
+		}
+		activeName.value = id == '' ? '还没有档案' : name
+		avatarText.value = id == '' ? '?' : avatar
+		hasChild.value = id != ''
+		trainCount.value = id == '' ? 0 : loadTrials(id).length
+	}
+
+	onUnmounted(() => {
+		stopLp()
+	})
+
+	function start() {
+		if (!hasChild.value) {
+			uni.navigateTo({ url: '/pages/profiles/profiles' })
+			return
+		}
+		uni.navigateTo({ url: '/pages/setup/setup' })
+	}
+
+	function goBook() {
+		uni.navigateTo({ url: '/pages/book/book' })
+	}
+
+	function goProfiles() {
+		uni.navigateTo({ url: '/pages/profiles/profiles' })
+	}
+
+	let lpTimer = 0
+	let lpStart = 0
+	let lpStartX = 0
+	let lpStartY = 0
+	let lpFired = false
+
+	function stopLp() {
+		if (lpTimer != 0) {
+			clearInterval(lpTimer)
+			lpTimer = 0
+		}
+		progress.value = 0
+	}
+
+	function lpDown(e: UniTouchEvent) {
+		if (lpTimer != 0) return
+		lpStart = Date.now()
+		lpFired = false
+		progress.value = 0
+		if (e.touches.length > 0) {
+			lpStartX = e.touches[0].pageX
+			lpStartY = e.touches[0].pageY
+		}
+		lpTimer = setInterval(() => {
+			const passed = Date.now() - lpStart
+			progress.value = Math.min(36, Math.floor(passed / 5000 * 36))
+			if (passed >= 5000) {
+				stopLp()
+				if (!lpFired) {
+					lpFired = true
+					uni.navigateTo({ url: '/pages/parent/parent' })
+				}
+			}
+		}, 50)
+	}
+
+	function lpMove(e: UniTouchEvent) {
+		if (lpTimer == 0) return
+		if (e.touches.length > 0) {
+			const dx = e.touches[0].pageX - lpStartX
+			const dy = e.touches[0].pageY - lpStartY
+			if (Math.abs(dx) > 20 || Math.abs(dy) > 20) stopLp()
+		}
+	}
+
+	function lpEnd() {
+		stopLp()
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		position: relative;
+	}
+
+	.top {
+		flex-direction: row;
+		align-items: center;
+		padding: 28px 24px 12px 24px;
+	}
+
+	.avatar {
+		width: 56px;
+		height: 56px;
+		border-radius: 28px;
+		background-color: #dcebff;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.avatar-t {
+		font-size: 24px;
+		color: #2f7fd8;
+	}
+
+	.who {
+		flex: 1;
+		margin-left: 14px;
+	}
+
+	.name {
+		font-size: 22px;
+		color: #24313f;
+	}
+
+	.sub {
+		font-size: 15px;
+		color: #8a9bb0;
+		margin-top: 4px;
+	}
+
+	.switch {
+		font-size: 16px;
+		color: #2f7fd8;
+		padding: 8px 12px;
+	}
+
+	.menu {
+		flex: 1;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-primary {
+		width: 80%;
+		height: 88px;
+		border-radius: 24px;
+		background-color: #7fb2ef;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 20px;
+	}
+
+	.btn-primary.off {
+		background-color: #c9d8ea;
+	}
+
+	.btn-primary-t {
+		font-size: 28px;
+		color: #ffffff;
+	}
+
+	.btn-normal {
+		width: 80%;
+		height: 72px;
+		border-radius: 20px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-style: solid;
+		border-color: #e3e9f2;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-normal-t {
+		font-size: 24px;
+		color: #24313f;
+	}
+
+	.hotzone {
+		position: absolute;
+		right: 0;
+		bottom: 0;
+		width: 72px;
+		height: 72px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ring {
+		width: 72px;
+		height: 72px;
+		position: relative;
+	}
+
+	.bar {
+		position: absolute;
+		left: 36px;
+		top: 36px;
+		width: 3px;
+		height: 8px;
+		margin-left: -1.5px;
+		margin-top: -4px;
+		border-radius: 2px;
+		background-color: #7fb2ef;
+	}
+</style>

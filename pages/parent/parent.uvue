@@ -1,0 +1,740 @@
+<template>
+	<view class="page">
+		<view class="head">
+			<text class="back" @click="back">返回</text>
+			<text class="title">家长端</text>
+			<text class="switch" @click="goProfiles">切换</text>
+		</view>
+
+		<text class="child">当前孩子：{{ childName }}</text>
+
+		<view class="tabs">
+			<view class="tab" :class="{ on: tab == 0 }" @click="setTab(0)"><text class="tab-t">记录</text></view>
+			<view class="tab" :class="{ on: tab == 1 }" @click="setTab(1)"><text class="tab-t">统计</text></view>
+			<view class="tab" :class="{ on: tab == 2 }" @click="setTab(2)"><text class="tab-t">设置</text></view>
+		</view>
+
+		<!-- 记录 -->
+		<scroll-view v-if="tab == 0" class="list" direction="vertical" :show-scrollbar="false">
+			<view v-for="r in records" :key="r.id" class="row">
+				<view class="row-left">
+					<text class="row-scene">{{ sceneName(r.sceneId) }} · {{ r.qid }}</text>
+					<text class="row-time">{{ timeText(r.ts) }}</text>
+				</view>
+				<text class="tag" :class="tagClass(r.hint)">{{ tagText(r.hint) }}</text>
+				<text class="row-ms">{{ r.ms }}ms</text>
+			</view>
+			<text v-if="records.length == 0" class="empty">还没有训练记录。</text>
+		</scroll-view>
+
+		<!-- 统计 -->
+		<scroll-view v-if="tab == 1" class="list" direction="vertical" :show-scrollbar="false">
+			<view class="cards">
+				<view class="card">
+					<text class="card-v">{{ summary.total }}</text>
+					<text class="card-t">总题数</text>
+				</view>
+				<view class="card">
+					<text class="card-v">{{ pct(summary.first, summary.total) }}</text>
+					<text class="card-t">一次通过率</text>
+				</view>
+				<view class="card">
+					<text class="card-v">{{ msText(summary.avgMs, summary.hasMs) }}</text>
+					<text class="card-t">平均反应时</text>
+				</view>
+			</view>
+
+			<text class="sec">最近 {{ trend.length }} 轮趋势</text>
+			<view class="chart" v-if="trend.length > 0">
+				<view class="col" v-for="r in trend" :key="r.sid + '-' + r.startTs">
+					<view class="bar" :style="'height:' + barHeight(r) + 'px'"></view>
+					<text class="col-t">{{ r.total }}</text>
+				</view>
+			</view>
+			<text v-else class="empty">还没有完整的一轮训练</text>
+
+			<text class="sec">单题正确率（最差在前）</text>
+			<view class="qrow" v-for="q in qStats" :key="q.qid">
+				<view class="qhead">
+					<text class="qid">{{ sceneName(q.sceneId) }} · {{ q.qid }}</text>
+					<text class="qval">{{ pct(q.first, q.total) }}</text>
+				</view>
+				<view class="qbar">
+					<view class="qbar-in" :style="'width:' + q.first * 100 / (q.total == 0 ? 1 : q.total) + '%'"></view>
+				</view>
+				<text class="qsub">最终通过 {{ pct(q.final, q.total) }} · 样本 {{ q.total }} · 平均 {{ msText(q.avgMs, q.hasMs) }}</text>
+			</view>
+			<text v-if="qStats.length == 0" class="empty">还没有训练数据</text>
+
+			<view class="sechead">
+				<text class="sec">轮次历史</text>
+				<text class="export" @click="exportCsv">{{ exporting ? '导出中…' : '导出 CSV' }}</text>
+			</view>
+			<view class="rrow" v-for="r in history" :key="r.sid + '-' + r.startTs">
+				<view class="rline" @click="toggleRound(r)">
+					<view class="rleft">
+						<text class="rtime">{{ timeText(r.startTs) }}</text>
+						<text class="rnum">{{ r.total }} 题 · 一次通过 {{ pct(r.first, r.total) }}</text>
+					</view>
+					<text v-if="r.legacy" class="rtag">旧数据</text>
+					<text class="rexp">{{ isOpen(r) ? '收起' : '展开' }}</text>
+				</view>
+				<view v-if="isOpen(r)" class="rdetail">
+					<view class="drow" v-for="t in r.trials" :key="t.id">
+						<text class="dq">{{ t.qid }}</text>
+						<text class="dh" :class="tagClass(t.hint)">{{ tagText(t.hint) }}</text>
+						<text class="dm">{{ t.ms }}ms</text>
+					</view>
+				</view>
+			</view>
+			<text v-if="history.length == 0" class="empty">还没有轮次记录</text>
+		</scroll-view>
+
+		<!-- 设置 -->
+		<scroll-view v-if="tab == 2" class="list" direction="vertical" :show-scrollbar="false">
+			<text class="label">音量</text>
+			<view class="vols">
+				<view class="pill" :class="{ on: state.volume < 0.7 }" @click="setVol(0.5)">
+					<text class="pill-t">轻</text>
+				</view>
+				<view class="pill" :class="{ on: state.volume >= 0.7 && state.volume < 0.95 }" @click="setVol(0.8)">
+					<text class="pill-t">中</text>
+				</view>
+				<view class="pill" :class="{ on: state.volume >= 0.95 }" @click="setVol(1.0)">
+					<text class="pill-t">响</text>
+				</view>
+			</view>
+
+			<view class="row2" @click="toggleText">
+				<text class="row2-t">显示文字</text>
+				<text class="row2-v">{{ state.showText ? '开' : '关' }}</text>
+			</view>
+			<view class="row2" @click="toggleVoice">
+				<text class="row2-t">播放语音</text>
+				<text class="row2-v">{{ state.autoVoice ? '开' : '关' }}</text>
+			</view>
+
+			<text class="label" style="margin-top:20px">硬件</text>
+			<view class="ipbox">
+				<input class="ip" v-model="ipInput" placeholder="192.168.4.1 或 PC_IP:8081" />
+			</view>
+			<view class="row2" @click="connectDevice">
+				<text class="row2-t">连接硬件</text>
+				<text class="row2-v">{{ state.deviceOnline ? '已连接' : '未连接' }}</text>
+			</view>
+			<view class="row2" @click="disconnectDevice">
+				<text class="row2-t">断开连接</text>
+				<text class="row2-v">—</text>
+			</view>
+
+			<view class="clear" @click="clearAll">
+				<text class="clear-t">清空当前孩子的记录</text>
+			</view>
+		</scroll-view>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref, watch } from 'vue'
+	import { Trial } from '../../data/types.uts'
+	import { sceneOf } from '../../data/scenes.uts'
+	import { state } from '../../store/index.uts'
+	import {
+		loadProfiles, loadTrials, clearTrials, timeText, loadSettings, saveSettings
+	} from '../../utils/storage.uts'
+	import {
+		pct, msText, summaryOf, qStatsOf, trendRounds, recentRounds, csvOf, dateTimeText,
+		Summary, QStat, Round
+	} from '../../utils/analysis.uts'
+	import { connect, disconnect } from '../../utils/device.uts'
+
+	const tab = ref(0)
+	const childName = ref('未选择')
+	const records = ref<Trial[]>([])
+	const summary = ref<Summary>({ total: 0, first: 0, final: 0, avgMs: 0, hasMs: false } as Summary)
+	const qStats = ref<QStat[]>([])
+	const trend = ref<Round[]>([])
+	const history = ref<Round[]>([])
+	const expandedKey = ref('')
+	const exporting = ref(false)
+	const ipInput = ref('192.168.4.1')
+
+	onMounted(() => {
+		loadSettings()
+		ipInput.value = state.deviceIp
+		refresh()
+	})
+
+	watch(() => state.profilesVersion, () => {
+		refresh()
+	})
+
+	function connectDevice() {
+		const ip = ipInput.value.trim()
+		if (ip == '') {
+			uni.showToast({ title: '先填硬件地址', position: 'bottom' })
+			return
+		}
+		state.deviceIp = ip
+		saveSettings()
+		connect(ip)
+		uni.showToast({ title: '正在连接…', position: 'bottom' })
+	}
+
+	function disconnectDevice() {
+		disconnect()
+		uni.showToast({ title: '已断开', position: 'bottom' })
+	}
+
+	function refresh() {
+		const list = loadProfiles()
+		for (let i = 0; i < list.length; i++) {
+			if (list[i].id == state.activeChildId) childName.value = list[i].name
+		}
+
+		const all = loadTrials(state.activeChildId)
+		const desc: Trial[] = []
+		for (let i = all.length - 1; i >= 0; i--) desc.push(all[i])
+		records.value = desc
+		buildView(all)
+	}
+
+	function buildView(all: Trial[]) {
+		summary.value = summaryOf(all)
+		qStats.value = qStatsOf(all)
+		trend.value = trendRounds(all, 10)
+		const h = recentRounds(all, 10)
+		h.reverse()
+		history.value = h
+		expandedKey.value = ''
+	}
+
+	function barHeight(r: Round): number {
+		if (r.total <= 0) return 6
+		const h = Math.round(r.first * 100 / r.total)
+		return h < 6 ? 6 : h
+	}
+
+	function roundKey(r: Round): string {
+		return r.sid + '-' + r.startTs.toString()
+	}
+
+	function isOpen(r: Round): boolean {
+		return expandedKey.value == roundKey(r)
+	}
+
+	function toggleRound(r: Round) {
+		const k = roundKey(r)
+		expandedKey.value = expandedKey.value == k ? '' : k
+	}
+
+	function pad2(n: number): string {
+		return n < 10 ? '0' + n.toString() : n.toString()
+	}
+
+	function stampNow(): string {
+		const d = new Date()
+		return d.getFullYear().toString() + pad2(d.getMonth() + 1) + pad2(d.getDate())
+			+ '_' + pad2(d.getHours()) + pad2(d.getMinutes())
+	}
+
+	function exportCsv() {
+		if (exporting.value) return
+		exporting.value = true
+		const all = loadTrials(state.activeChildId)
+		const csv = csvOf(childName.value, all)
+		let dir = uni.env.CACHE_PATH
+		if (dir.length > 0 && dir.substring(dir.length - 1) == '/') {
+			dir = dir.substring(0, dir.length - 1)
+		}
+		const path = dir + '/trials_' + childName.value + '_' + stampNow() + '.csv'
+		const fs = uni.getFileSystemManager()
+		fs.writeFile({
+			filePath: path,
+			data: csv,
+			encoding: 'utf-8',
+			success: () => {
+				uni.shareWithSystem({
+					type: 'file',
+					filePaths: [path],
+					complete: () => {
+						exporting.value = false
+					}
+				})
+			},
+			fail: () => {
+				exporting.value = false
+				uni.setClipboardData({ data: csv })
+				uni.showToast({ title: '写入失败，已复制到剪贴板', position: 'bottom' })
+			}
+		})
+	}
+
+	function sceneName(id: string): string {
+		return sceneOf(id).name
+	}
+
+	function tagText(hint: number): string {
+		if (hint == 0) return '一次通过'
+		if (hint == 1) return '重教后'
+		return '公布答案'
+	}
+
+	function tagClass(hint: number): string {
+		if (hint == 0) return 'g'
+		if (hint == 1) return 'b'
+		return 'o'
+	}
+
+	function setTab(n: number) {
+		tab.value = n
+		if (n != 2) refresh()
+	}
+
+	function setVol(v: number) {
+		state.volume = v
+		saveSettings()
+	}
+
+	function toggleText() {
+		state.showText = !state.showText
+		saveSettings()
+	}
+
+	function toggleVoice() {
+		state.autoVoice = !state.autoVoice
+		saveSettings()
+	}
+
+	function clearAll() {
+		uni.showModal({
+			title: '清空记录',
+			content: '只清空当前孩子的训练记录，确定吗？',
+			success: (res) => {
+				if (res.confirm) {
+					clearTrials(state.activeChildId)
+					refresh()
+					uni.showToast({ title: '已清空', position: 'bottom' })
+				}
+			}
+		})
+	}
+
+	function goProfiles() {
+		uni.navigateTo({ url: '/pages/profiles/profiles' })
+	}
+
+	function back() {
+		uni.navigateBack()
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		padding: 20px 18px;
+	}
+
+	.head {
+		flex-direction: row;
+		align-items: center;
+		height: 48px;
+	}
+
+	.back {
+		font-size: 16px;
+		color: #2f7fd8;
+		width: 60px;
+	}
+
+	.title {
+		flex: 1;
+		text-align: center;
+		font-size: 22px;
+		color: #1f2d3d;
+	}
+
+	.switch {
+		font-size: 16px;
+		color: #2f7fd8;
+		width: 60px;
+		text-align: right;
+	}
+
+	.child {
+		font-size: 15px;
+		color: #8a9bb0;
+		margin-top: 6px;
+	}
+
+	.tabs {
+		flex-direction: row;
+		margin-top: 12px;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 6px;
+	}
+
+	.tab {
+		flex: 1;
+		height: 44px;
+		border-radius: 10px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.tab.on {
+		background-color: #e8f3ff;
+	}
+
+	.tab-t {
+		font-size: 17px;
+		color: #24313f;
+	}
+
+	.list {
+		flex: 1;
+		margin-top: 12px;
+	}
+
+	.row {
+		flex-direction: row;
+		align-items: center;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 14px;
+		margin-bottom: 8px;
+	}
+
+	.row-left {
+		flex: 1;
+	}
+
+	.row-scene {
+		font-size: 17px;
+		color: #24313f;
+	}
+
+	.row-time {
+		font-size: 13px;
+		color: #a8b4c4;
+		margin-top: 4px;
+	}
+
+	.tag {
+		font-size: 13px;
+		border-radius: 8px;
+		padding: 4px 8px;
+		margin-right: 8px;
+	}
+
+	.tag.g {
+		color: #2f9e6a;
+		background-color: #eafaf2;
+	}
+
+	.tag.b {
+		color: #2f7fd8;
+		background-color: #e8f3ff;
+	}
+
+	.tag.o {
+		color: #c2762a;
+		background-color: #fdf1e3;
+	}
+
+	.row-ms {
+		font-size: 13px;
+		color: #a8b4c4;
+		width: 56px;
+		text-align: right;
+	}
+
+	.empty {
+		font-size: 16px;
+		color: #97a6b8;
+		margin-top: 20px;
+	}
+
+	.panel {
+		flex: 1;
+		margin-top: 12px;
+	}
+
+	.cards {
+		flex-direction: row;
+		justify-content: space-between;
+	}
+
+	.card {
+		width: 32%;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 12px 6px;
+		align-items: center;
+	}
+
+	.card-v {
+		font-size: 21px;
+		color: #2f7fd8;
+	}
+
+	.card-t {
+		font-size: 12px;
+		color: #8a9bb0;
+		margin-top: 4px;
+	}
+
+	.sec {
+		font-size: 16px;
+		color: #8a9bb0;
+		margin-top: 18px;
+		margin-bottom: 8px;
+	}
+
+	.sechead {
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.export {
+		font-size: 15px;
+		color: #2f7fd8;
+		padding: 6px 8px;
+	}
+
+	.chart {
+		flex-direction: row;
+		align-items: flex-end;
+		height: 120px;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 10px;
+	}
+
+	.col {
+		flex: 1;
+		align-items: center;
+		justify-content: flex-end;
+	}
+
+	.bar {
+		width: 20px;
+		border-radius: 4px;
+		background-color: #7fb2ef;
+	}
+
+	.col-t {
+		font-size: 11px;
+		color: #a8b4c4;
+		margin-top: 4px;
+	}
+
+	.qrow {
+		background-color: #ffffff;
+		border-radius: 12px;
+		padding: 12px;
+		margin-bottom: 8px;
+	}
+
+	.qhead {
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.qid {
+		font-size: 16px;
+		color: #24313f;
+	}
+
+	.qval {
+		font-size: 16px;
+		color: #2f7fd8;
+	}
+
+	.qbar {
+		height: 6px;
+		border-radius: 3px;
+		background-color: #eef3f9;
+		margin-top: 8px;
+	}
+
+	.qbar-in {
+		height: 6px;
+		border-radius: 3px;
+		background-color: #4cc38a;
+	}
+
+	.qsub {
+		font-size: 12px;
+		color: #8a9bb0;
+		margin-top: 6px;
+	}
+
+	.rrow {
+		background-color: #ffffff;
+		border-radius: 12px;
+		padding: 12px;
+		margin-bottom: 8px;
+	}
+
+	.rline {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.rleft {
+		flex: 1;
+	}
+
+	.rtime {
+		font-size: 15px;
+		color: #24313f;
+	}
+
+	.rnum {
+		font-size: 12px;
+		color: #8a9bb0;
+		margin-top: 3px;
+	}
+
+	.rtag {
+		font-size: 11px;
+		color: #c2762a;
+		background-color: #fdf1e3;
+		border-radius: 6px;
+		padding: 2px 6px;
+		margin-right: 6px;
+	}
+
+	.rexp {
+		font-size: 13px;
+		color: #2f7fd8;
+		padding: 4px 6px;
+	}
+
+	.rdetail {
+		margin-top: 10px;
+		border-top-width: 1px;
+		border-top-style: solid;
+		border-top-color: #eef3f9;
+		padding-top: 8px;
+	}
+
+	.drow {
+		flex-direction: row;
+		align-items: center;
+		padding: 4px 0;
+	}
+
+	.dq {
+		font-size: 13px;
+		color: #6b7c90;
+		width: 70px;
+	}
+
+	.dh {
+		flex: 1;
+		font-size: 13px;
+	}
+
+	.dh.g {
+		color: #2f9e6a;
+	}
+
+	.dh.b {
+		color: #2f7fd8;
+	}
+
+	.dh.o {
+		color: #c2762a;
+	}
+
+	.dm {
+		font-size: 12px;
+		color: #a8b4c4;
+	}
+
+	.label {
+		font-size: 16px;
+		color: #8a9bb0;
+	}
+
+	.ipbox {
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 4px 12px;
+		margin-top: 8px;
+	}
+
+	.ip {
+		height: 44px;
+		font-size: 17px;
+		color: #24313f;
+	}
+
+	.vols {
+		flex-direction: row;
+		margin-top: 8px;
+		margin-bottom: 12px;
+	}
+
+	.pill {
+		width: 80px;
+		height: 44px;
+		border-radius: 22px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-style: solid;
+		border-color: #e3e9f2;
+		align-items: center;
+		justify-content: center;
+		margin-right: 12px;
+	}
+
+	.pill.on {
+		background-color: #e8f3ff;
+		border-color: #7fb2ef;
+	}
+
+	.pill-t {
+		font-size: 17px;
+		color: #24313f;
+	}
+
+	.row2 {
+		flex-direction: row;
+		justify-content: space-between;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 16px;
+		margin-top: 10px;
+	}
+
+	.row2-t {
+		font-size: 18px;
+		color: #24313f;
+	}
+
+	.row2-v {
+		font-size: 18px;
+		color: #2f7fd8;
+	}
+
+	.clear {
+		height: 60px;
+		border-radius: 14px;
+		background-color: #fdf1e3;
+		align-items: center;
+		justify-content: center;
+		margin-top: 24px;
+	}
+
+	.clear-t {
+		font-size: 17px;
+		color: #c2762a;
+	}
+</style>

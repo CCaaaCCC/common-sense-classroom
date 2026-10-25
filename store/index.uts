@@ -1,0 +1,51 @@
+import { reactive } from 'vue'
+
+export type State = {
+	activeChildId: string
+	volume: number
+	showText: boolean
+	autoVoice: boolean
+	cfgSceneId: string
+	cfgCount: number
+	resultSceneId: string
+	resultStartTs: number
+	resultEndTs: number
+	profilesVersion: number
+	sessionId: string
+	deviceIp: string
+	deviceOnline: boolean
+}
+
+export const state = reactive({
+	activeChildId: '',
+	volume: 0.8,
+	showText: true,
+	autoVoice: true,
+	cfgSceneId: '',
+	cfgCount: 4,
+	resultSceneId: '',
+	resultStartTs: 0,
+	resultEndTs: 0,
+	profilesVersion: 0,
+	sessionId: '',
+	deviceIp: '192.168.4.1',
+	deviceOnline: false
+} as State)
+
+// Vapor 下页面没有 onShow，返回上一页时不会重新挂载。
+// 档案/当前孩子变化后调用它，页面用 watch 监听即可刷新。
+export function bumpProfiles() {
+	state.profilesVersion = state.profilesVersion + 1
+}
+
+export function startSession(sceneId: string, count: number) {
+	state.cfgSceneId = sceneId
+	state.cfgCount = count
+	state.sessionId = 's-' + Date.now().toString()
+}
+
+export function finishSession(sceneId: string, startTs: number, endTs: number) {
+	state.resultSceneId = sceneId
+	state.resultStartTs = startTs
+	state.resultEndTs = endTs
+}

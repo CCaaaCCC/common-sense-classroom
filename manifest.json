@@ -1,0 +1,66 @@
+{
+	"name": "常识小课堂",
+	"appid": "__UNI__BEFA70D",
+	"description": "孤独症儿童情景常识训练",
+	"versionName": "1.1.0",
+	"versionCode": "101",
+	"uni-app-x": {
+		"styleIsolationVersion": "2",
+		"vapor": true,
+		"vapor-render-target": "bytecode"
+	},
+	"quickapp": {},
+	"mp-weixin": {
+		"appid": "",
+		"setting": {
+			"urlCheck": false
+		},
+		"usingComponents": true
+	},
+	"mp-alipay": {
+		"usingComponents": true
+	},
+	"mp-baidu": {
+		"usingComponents": true
+	},
+	"mp-toutiao": {
+		"usingComponents": true
+	},
+	"uniStatistics": {
+		"enable": false
+	},
+	"vueVersion": "3",
+	"app": {
+		"distribute": {
+			"icons": {
+				"android": {
+					"hdpi": "static/icon/icon_72.png",
+					"xhdpi": "static/icon/icon_96.png",
+					"xxhdpi": "static/icon/icon_144.png",
+					"xxxhdpi": "static/icon/icon_192.png"
+				}
+			}
+		}
+	},
+	"app-android": {
+		"distribute": {
+			"modules": {},
+			"icons": {
+				"hdpi": "static/icon/icon_72.png",
+				"xhdpi": "static/icon/icon_96.png",
+				"xxhdpi": "static/icon/icon_144.png",
+				"xxxhdpi": "static/icon/icon_192.png"
+			},
+			"splashScreens": {
+				"default": {}
+			}
+		}
+	},
+	"app-ios": {
+		"distribute": {
+			"modules": {},
+			"icons": {},
+			"splashScreens": {}
+		}
+	}
+}

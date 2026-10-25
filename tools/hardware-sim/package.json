@@ -1,0 +1,13 @@
+{
+  "name": "hardware-sim",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ESP32 board simulator for the ASD training app (WebSocket + web button pad)",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

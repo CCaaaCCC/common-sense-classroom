@@ -1,0 +1,241 @@
+<template>
+	<view class="page">
+		<view class="head">
+			<text class="back" @click="back">返回</text>
+			<text class="title">孩子档案</text>
+			<text class="ph"></text>
+		</view>
+
+		<scroll-view class="list" direction="vertical" :show-scrollbar="false">
+			<view
+				v-for="p in profiles"
+				:key="p.id"
+				class="item"
+				:class="{ on: p.id == activeId }"
+				@click="pick(p.id)"
+			>
+				<view class="avatar">
+					<text class="avatar-t">{{ firstChar(p.name) }}</text>
+				</view>
+				<view class="who">
+					<text class="name">{{ p.name }}</text>
+					<text v-if="p.id == activeId" class="tag">当前</text>
+				</view>
+				<text class="del" @click.stop="del(p)">删除</text>
+			</view>
+			<text v-if="profiles.length == 0" class="empty">还没有档案，先在下面建一个。</text>
+		</scroll-view>
+
+		<view class="add">
+			<input class="input" v-model="newName" placeholder="输入孩子名字" />
+			<view class="save" @click="add">
+				<text class="save-t">新增</text>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { Profile } from '../../data/types.uts'
+	import { state } from '../../store/index.uts'
+	import {
+		loadProfiles, saveProfile, deleteProfile, setActiveChildId, newId
+	} from '../../utils/storage.uts'
+
+	const profiles = ref<Profile[]>([])
+	const activeId = ref('')
+	const newName = ref('')
+
+	onMounted(() => {
+		refresh()
+	})
+
+	function refresh() {
+		profiles.value = loadProfiles()
+		activeId.value = state.activeChildId
+	}
+
+	function firstChar(n: string): string {
+		return n.length > 0 ? n.substring(0, 1) : '?'
+	}
+
+	function pick(id: string) {
+		setActiveChildId(id)
+		activeId.value = id
+		uni.navigateBack()
+	}
+
+	function add() {
+		const name = newName.value.trim()
+		if (name == '') {
+			uni.showToast({ title: '先输入名字', position: 'bottom' })
+			return
+		}
+		const p: Profile = {
+			id: newId(),
+			name: name,
+			avatar: '',
+			createdAt: Date.now()
+		} as Profile
+		saveProfile(p)
+		setActiveChildId(p.id)
+		newName.value = ''
+		refresh()
+		uni.showToast({ title: '已新增', position: 'bottom' })
+	}
+
+	function del(p: Profile) {
+		if (profiles.value.length <= 1) {
+			uni.showToast({ title: '至少保留一个档案', position: 'bottom' })
+			return
+		}
+		uni.showModal({
+			title: '删除档案',
+			content: '会同时删除「' + p.name + '」的全部训练记录，确定吗？',
+			success: (res) => {
+				if (res.confirm) {
+					deleteProfile(p.id)
+					if (activeId.value == p.id) {
+						const left = loadProfiles()
+						setActiveChildId(left.length > 0 ? left[0].id : '')
+					}
+					refresh()
+				}
+			}
+		})
+	}
+
+	function back() {
+		uni.navigateBack()
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		padding: 20px 18px;
+	}
+
+	.head {
+		flex-direction: row;
+		align-items: center;
+		height: 48px;
+	}
+
+	.back {
+		font-size: 16px;
+		color: #2f7fd8;
+		width: 60px;
+	}
+
+	.title {
+		flex: 1;
+		text-align: center;
+		font-size: 22px;
+		color: #1f2d3d;
+	}
+
+	.ph {
+		width: 60px;
+	}
+
+	.list {
+		flex: 1;
+		margin-top: 12px;
+	}
+
+	.item {
+		flex-direction: row;
+		align-items: center;
+		background-color: #ffffff;
+		border-radius: 16px;
+		border-width: 2px;
+		border-style: solid;
+		border-color: #ffffff;
+		padding: 14px;
+		margin-bottom: 10px;
+	}
+
+	.item.on {
+		border-color: #7fb2ef;
+	}
+
+	.avatar {
+		width: 48px;
+		height: 48px;
+		border-radius: 24px;
+		background-color: #dcebff;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.avatar-t {
+		font-size: 20px;
+		color: #2f7fd8;
+	}
+
+	.who {
+		flex: 1;
+		flex-direction: row;
+		align-items: center;
+		margin-left: 12px;
+	}
+
+	.name {
+		font-size: 20px;
+		color: #24313f;
+	}
+
+	.tag {
+		font-size: 13px;
+		color: #2f7fd8;
+		background-color: #e8f3ff;
+		border-radius: 8px;
+		padding: 2px 8px;
+		margin-left: 8px;
+	}
+
+	.del {
+		font-size: 15px;
+		color: #d9822b;
+		padding: 8px;
+	}
+
+	.empty {
+		font-size: 16px;
+		color: #97a6b8;
+		margin-top: 20px;
+	}
+
+	.add {
+		flex-direction: row;
+		align-items: center;
+		background-color: #ffffff;
+		border-radius: 16px;
+		padding: 10px;
+		margin-bottom: 12px;
+	}
+
+	.input {
+		flex: 1;
+		height: 48px;
+		font-size: 18px;
+		color: #24313f;
+	}
+
+	.save {
+		width: 88px;
+		height: 48px;
+		border-radius: 12px;
+		background-color: #7fb2ef;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.save-t {
+		font-size: 18px;
+		color: #ffffff;
+	}
+</style>

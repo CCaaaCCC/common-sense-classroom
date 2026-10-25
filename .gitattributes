@@ -1,0 +1,10 @@
+# 统一换行：仓库内保存 LF，Windows 检出 CRLF
+* text=auto
+
+# 二进制资源，禁止换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp3 binary
+*.apk binary
+*.zip binary

@@ -1,0 +1,57 @@
+export type Option = {
+	id: string
+	label: string
+	image: string
+}
+
+export type Question = {
+	id: string
+	kind: string
+	teachText: string
+	teachAudio: string
+	teachImage: string
+	promptText: string
+	promptAudio: string
+	options: Option[]
+	answerId: string
+}
+
+export type Scene = {
+	id: string
+	name: string
+	cover: string
+	questions: Question[]
+}
+
+export type Profile = {
+	id: string
+	name: string
+	avatar: string
+	createdAt: number
+}
+
+export type Trial = {
+	id: string
+	childId: string
+	sceneId: string
+	qid: string
+	optId: string
+	ok: boolean
+	hint: number
+	ms: number
+	ts: number
+	sid: string
+}
+
+export type SessionCfg = {
+	childId: string
+	sceneId: string
+	count: number
+}
+
+export type SessionResult = {
+	sceneId: string
+	trials: Trial[]
+	startTs: number
+	endTs: number
+}

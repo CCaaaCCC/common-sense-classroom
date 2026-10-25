@@ -1,0 +1,454 @@
+<template>
+	<view class="page">
+		<view class="bar-wrap">
+			<text class="prog">{{ qIndex + 1 }} / {{ questions.length }}</text>
+			<view class="bar">
+				<view class="bar-in" :style="barStyle"></view>
+			</view>
+		</view>
+
+		<view class="stage">
+			<image class="pic" :src="currentImg" mode="aspectFill"></image>
+		</view>
+
+		<view class="say" v-if="state.showText">
+			<text class="say-t">{{ currentText }}</text>
+		</view>
+
+		<view class="wave" v-if="showWave">
+			<view class="w" :style="'height:' + wave[0] + 'px'"></view>
+			<view class="w" :style="'height:' + wave[1] + 'px'"></view>
+			<view class="w" :style="'height:' + wave[2] + 'px'"></view>
+		</view>
+
+		<view class="options">
+			<view
+				v-for="o in currentOptions"
+				:key="o.id"
+				class="opt"
+				:class="optClass(o.id)"
+				@click="choose(o.id)"
+			>
+				<image v-if="o.image != ''" class="opt-img" :src="o.image" mode="aspectFill"></image>
+				<text class="opt-t" :class="{ 'opt-t-big': o.image == '' }">{{ o.label }}</text>
+			</view>
+		</view>
+
+		<view class="stars" v-if="phase == 'reward'">
+			<text class="star">★</text>
+			<text class="star">★</text>
+			<text class="star">★</text>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref, computed } from 'vue'
+	import { Question, Option, Trial } from '../../data/types.uts'
+	import { sceneOf } from '../../data/scenes.uts'
+	import { state, finishSession } from '../../store/index.uts'
+	import { appendTrial, newId } from '../../utils/storage.uts'
+	import { play, stop } from '../../utils/audio.uts'
+	import {
+		onDeviceMessage, clearDeviceMessage, onDeviceOpen, clearDeviceOpen,
+		sendTask, sendDisarm, sendReward, sendIdle
+	} from '../../utils/device.uts'
+
+	const COMMON = '/static/audio/common/'
+
+	const scene = sceneOf(state.cfgSceneId)
+	const questions = ref<Question[]>([])
+	const qIndex = ref(0)
+	const phase = ref('teach')
+	const attempt = ref(1)
+	const locked = ref(false)
+	const chosenId = ref('')
+	const revealId = ref('')
+	const showWave = ref(false)
+	const wave = ref<number[]>([8, 16, 10])
+	const trials = ref<Trial[]>([])
+
+	let askStart = 0
+	let sessionStart = 0
+	let waveTimer = 0
+	let lastSeq = 0
+	const timers: number[] = []
+
+	onMounted(() => {
+		sessionStart = Date.now()
+		buildQuestions()
+		onDeviceMessage(handleDeviceMessage)
+		// 断线重连后，如果正停在答题阶段，重新下发当前题
+		onDeviceOpen(() => {
+			if (phase.value == 'ask') armDevice()
+		})
+		enterTeach()
+	})
+
+	onUnmounted(() => {
+		clearDeviceMessage()
+		clearDeviceOpen()
+		sendIdle()
+		clearAll()
+		stop()
+	})
+
+	// 硬件只上报「左/右」，判定与计时都在 App
+	function handleDeviceMessage(m: UTSJSONObject) {
+		const t = m.getString('t')
+		if (t != 'choice') return
+		// 重连后可能收到上一题的旧包，必须校验 qid
+		const qid = m.getString('qid')
+		if (questions.value.length == 0) return
+		if (qid != null && qid != questions.value[qIndex.value].id) return
+		const seq = m.getNumber('seq')
+		if (seq != null) {
+			if (seq <= lastSeq) return
+			lastSeq = seq
+		}
+		const opt = m.getString('opt')
+		if (opt == null) return
+		choose(opt)
+	}
+
+	const current = computed((): Question => {
+		return questions.value[qIndex.value]
+	})
+
+	const currentOptions = computed((): Option[] => {
+		if (questions.value.length == 0) return [] as Option[]
+		return current.value.options
+	})
+
+	const currentImg = computed((): string => {
+		if (questions.value.length == 0) return ''
+		return current.value.teachImage
+	})
+
+	const currentText = computed((): string => {
+		if (questions.value.length == 0) return ''
+		if (phase.value == 'teach' || phase.value == 'reward') return current.value.teachText
+		return current.value.promptText
+	})
+
+	const barStyle = computed((): string => {
+		const total = questions.value.length
+		const done = total == 0 ? 0 : qIndex.value / total
+		return 'width:' + Math.floor(done * 100).toString() + '%'
+	})
+
+	function buildQuestions() {
+		const all = scene.questions
+		const list: Question[] = []
+		const n = Math.min(state.cfgCount, all.length)
+		for (let i = 0; i < n; i++) {
+			list.push(all[i])
+		}
+		questions.value = list
+	}
+
+	function clearAll() {
+		for (let i = 0; i < timers.length; i++) {
+			clearTimeout(timers[i])
+		}
+		timers.splice(0, timers.length)
+		stopWave()
+	}
+
+	function later(ms: number, fn: () => void) {
+		timers.push(setTimeout(fn, ms))
+	}
+
+	function startWave() {
+		showWave.value = true
+		waveTimer = setInterval(() => {
+			wave.value = [
+				6 + Math.floor(Math.random() * 16),
+				6 + Math.floor(Math.random() * 16),
+				6 + Math.floor(Math.random() * 16)
+			]
+		}, 120)
+	}
+
+	function stopWave() {
+		showWave.value = false
+		if (waveTimer != 0) {
+			clearInterval(waveTimer)
+			waveTimer = 0
+		}
+	}
+
+	// 播一句台词：音频正常结束、播放失败、超时，三者谁先到就走谁，保证不卡死
+	function say(src: string, fallbackMs: number, onDone: () => void) {
+		if (!state.autoVoice) {
+			onDone()
+			return
+		}
+		startWave()
+		let done = false
+		const fire = () => {
+			if (done) return
+			done = true
+			stopWave()
+			onDone()
+		}
+		play(src, (ok: boolean) => {
+			fire()
+		})
+		later(fallbackMs, () => {
+			if (!done) {
+				stop()
+				fire()
+			}
+		})
+	}
+
+	function enterTeach() {
+		phase.value = 'teach'
+		attempt.value = 1
+		locked.value = true
+		chosenId.value = ''
+		revealId.value = ''
+		sendDisarm(state.sessionId)
+		const q = questions.value[qIndex.value]
+		say(q.teachAudio, 4000, () => { enterAsk() })
+	}
+
+	function armDevice() {
+		const q = questions.value[qIndex.value]
+		sendTask(state.sessionId, scene.id, q.id, qIndex.value, questions.value.length)
+	}
+
+	function enterAsk() {
+		if (phase.value != 'teach') return
+		phase.value = 'ask'
+		askStart = Date.now()
+		locked.value = false
+		armDevice()
+	}
+
+	function optClass(id: string): string {
+		if (phase.value == 'reward' && chosenId.value == id) return 'win'
+		if (phase.value == 'reveal') {
+			if (id == revealId.value) return 'right'
+			return 'dim'
+		}
+		if (phase.value == 'reteach' && id == current.value.answerId) return 'hint'
+		return ''
+	}
+
+	function choose(optId: string) {
+		if (phase.value != 'ask') return
+		if (locked.value) return
+		locked.value = true
+		chosenId.value = optId
+		const q = questions.value[qIndex.value]
+		const ms = Date.now() - askStart
+
+		if (optId == q.answerId) {
+			const hint = attempt.value == 1 ? 0 : 1
+			record(q, optId, hint == 0, hint, ms)
+			phase.value = 'reward'
+			sendReward(state.sessionId, q.id, true, hint)
+			say(hint == 0 ? COMMON + 'great.mp3' : COMMON + 'again_ok.mp3', 900, () => {})
+			later(1500, () => { next() })
+		} else {
+			if (attempt.value == 1) {
+				phase.value = 'reteach'
+				// 硬件此时是 LATCHED，先解锁；重教结束再重新 arm
+				sendDisarm(state.sessionId)
+				say(COMMON + 'look_again.mp3', 2000, () => {})
+				later(2500, () => {
+					attempt.value = 2
+					phase.value = 'ask'
+					askStart = Date.now()
+					locked.value = false
+					armDevice()
+				})
+			} else {
+				record(q, optId, false, 2, ms)
+				revealId.value = q.answerId
+				phase.value = 'reveal'
+				sendReward(state.sessionId, q.id, false, 2)
+				say(COMMON + 'answer.mp3', 2200, () => {})
+				later(2600, () => { next() })
+			}
+		}
+	}
+
+	function record(q: Question, optId: string, ok: boolean, hint: number, ms: number) {
+		const t: Trial = {
+			id: newId(),
+			childId: state.activeChildId,
+			sceneId: scene.id,
+			qid: q.id,
+			optId: optId,
+			ok: ok,
+			hint: hint,
+			ms: ms,
+			ts: Date.now(),
+			sid: state.sessionId
+		} as Trial
+		appendTrial(t)
+		trials.value.push(t)
+	}
+
+	function next() {
+		clearAll()
+		stop()
+		if (qIndex.value + 1 < questions.value.length) {
+			qIndex.value = qIndex.value + 1
+			enterTeach()
+		} else {
+			finishSession(scene.id, sessionStart, Date.now())
+			uni.redirectTo({ url: '/pages/result/result' })
+		}
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		padding: 20px 18px;
+		position: relative;
+	}
+
+	.bar-wrap {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.prog {
+		font-size: 16px;
+		color: #8a9bb0;
+		width: 70px;
+	}
+
+	.bar {
+		flex: 1;
+		height: 4px;
+		border-radius: 2px;
+		background-color: #e3e9f2;
+	}
+
+	.bar-in {
+		height: 4px;
+		border-radius: 2px;
+		background-color: #7fb2ef;
+	}
+
+	.stage {
+		height: 300px;
+		margin-top: 14px;
+		border-radius: 18px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.pic {
+		width: 100%;
+		height: 300px;
+		border-radius: 18px;
+	}
+
+	.say {
+		margin-top: 12px;
+		align-items: center;
+	}
+
+	.say-t {
+		font-size: 26px;
+		color: #1f2d3d;
+		text-align: center;
+	}
+
+	.wave {
+		flex-direction: row;
+		align-items: flex-end;
+		justify-content: center;
+		height: 24px;
+		margin-top: 6px;
+	}
+
+	.w {
+		width: 6px;
+		margin-left: 4px;
+		margin-right: 4px;
+		border-radius: 3px;
+		background-color: #7fb2ef;
+	}
+
+	.options {
+		flex-direction: row;
+		justify-content: space-between;
+		margin-top: 16px;
+	}
+
+	.opt {
+		width: 46%;
+		height: 220px;
+		border-radius: 24px;
+		background-color: #ffffff;
+		border-width: 2px;
+		border-style: solid;
+		border-color: #e3e9f2;
+		align-items: center;
+		justify-content: center;
+		padding: 10px;
+	}
+
+	.opt.win {
+		border-color: #4cc38a;
+		background-color: #eafaf2;
+	}
+
+	.opt.hint {
+		border-color: #7fb2ef;
+		background-color: #e8f3ff;
+	}
+
+	.opt.right {
+		border-color: #4cc38a;
+		background-color: #eafaf2;
+	}
+
+	.opt.dim {
+		opacity: 0.4;
+	}
+
+	.opt-img {
+		width: 100%;
+		height: 140px;
+		border-radius: 12px;
+	}
+
+	.opt-t {
+		font-size: 19px;
+		color: #24313f;
+		margin-top: 8px;
+		text-align: center;
+	}
+
+	.opt-t-big {
+		font-size: 32px;
+		margin-top: 0;
+	}
+
+	.stars {
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 260px;
+		flex-direction: row;
+		justify-content: center;
+	}
+
+	.star {
+		font-size: 44px;
+		color: #f5c451;
+		margin-left: 6px;
+		margin-right: 6px;
+	}
+</style>

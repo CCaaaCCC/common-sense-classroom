@@ -1,0 +1,198 @@
+import { Profile, Trial } from '../data/types.uts'
+import { state, bumpProfiles } from '../store/index.uts'
+
+const K_PROFILES = 'asd_profiles'
+const K_ACTIVE = 'asd_active_child'
+const K_TRIALS = 'asd_trials'
+const K_SETTINGS = 'asd_settings'
+const MAX_PROFILES = 20
+const MAX_TRIALS = 2000
+
+function readString(key: string): string {
+	const v = uni.getStorageSync(key)
+	if (v == null) return ''
+	return v as string
+}
+
+function readObjects(key: string): Array<UTSJSONObject> {
+	const raw = readString(key)
+	if (raw == '') return [] as Array<UTSJSONObject>
+	const parsed = JSON.parse(raw)
+	if (parsed == null) return [] as Array<UTSJSONObject>
+	return parsed as Array<UTSJSONObject>
+}
+
+export function newId(): string {
+	return Date.now().toString() + '-' + Math.floor(Math.random() * 100000).toString()
+}
+
+function pad2(n: number): string {
+	return n < 10 ? '0' + n.toString() : n.toString()
+}
+
+export function timeText(ts: number): string {
+	const d = new Date(ts)
+	return pad2(d.getHours()) + ':' + pad2(d.getMinutes())
+}
+
+// ---------- 档案 ----------
+
+export function loadProfiles(): Profile[] {
+	const arr = readObjects(K_PROFILES)
+	const out: Profile[] = []
+	for (let i = 0; i < arr.length; i++) {
+		const o = arr[i]
+		const id = o.getString('id')
+		const name = o.getString('name')
+		const avatar = o.getString('avatar')
+		const createdAt = o.getNumber('createdAt')
+		out.push({
+			id: id == null ? '' : id,
+			name: name == null ? '' : name,
+			avatar: avatar == null ? '' : avatar,
+			createdAt: createdAt == null ? 0 : createdAt
+		} as Profile)
+	}
+	return out
+}
+
+function saveProfiles(list: Profile[]) {
+	uni.setStorageSync(K_PROFILES, JSON.stringify(list))
+}
+
+export function saveProfile(p: Profile) {
+	const list = loadProfiles()
+	let hit = -1
+	for (let i = 0; i < list.length; i++) {
+		if (list[i].id == p.id) hit = i
+	}
+	if (hit >= 0) {
+		list[hit] = p
+	} else {
+		if (list.length >= MAX_PROFILES) list.splice(0, 1)
+		list.push(p)
+	}
+	saveProfiles(list)
+	bumpProfiles()
+}
+
+export function deleteProfile(id: string) {
+	const list = loadProfiles()
+	const left: Profile[] = []
+	for (let i = 0; i < list.length; i++) {
+		if (list[i].id != id) left.push(list[i])
+	}
+	saveProfiles(left)
+
+	const all = loadAllTrials()
+	const keep: Trial[] = []
+	for (let i = 0; i < all.length; i++) {
+		if (all[i].childId != id) keep.push(all[i])
+	}
+	saveTrials(keep)
+
+	if (state.activeChildId == id) {
+		setActiveChildId(left.length > 0 ? left[0].id : '')
+	}
+	bumpProfiles()
+}
+
+export function getActiveChildId(): string {
+	return readString(K_ACTIVE)
+}
+
+export function setActiveChildId(id: string) {
+	state.activeChildId = id
+	uni.setStorageSync(K_ACTIVE, id)
+	bumpProfiles()
+}
+
+// ---------- 训练记录 ----------
+
+function loadAllTrials(): Trial[] {
+	const arr = readObjects(K_TRIALS)
+	const out: Trial[] = []
+	for (let i = 0; i < arr.length; i++) {
+		const o = arr[i]
+		const id = o.getString('id')
+		const childId = o.getString('childId')
+		const sceneId = o.getString('sceneId')
+		const qid = o.getString('qid')
+		const optId = o.getString('optId')
+		const ok = o.getBoolean('ok')
+		const hint = o.getNumber('hint')
+		const ms = o.getNumber('ms')
+		const ts = o.getNumber('ts')
+		const sid = o.getString('sid')
+		out.push({
+			id: id == null ? '' : id,
+			childId: childId == null ? '' : childId,
+			sceneId: sceneId == null ? '' : sceneId,
+			qid: qid == null ? '' : qid,
+			optId: optId == null ? '' : optId,
+			ok: ok == null ? false : ok,
+			hint: hint == null ? 0 : hint,
+			ms: ms == null ? 0 : ms,
+			ts: ts == null ? 0 : ts,
+			sid: sid == null ? '' : sid
+		} as Trial)
+	}
+	return out
+}
+
+function saveTrials(list: Trial[]) {
+	uni.setStorageSync(K_TRIALS, JSON.stringify(list))
+}
+
+export function appendTrial(t: Trial) {
+	const all = loadAllTrials()
+	all.push(t)
+	if (all.length > MAX_TRIALS) {
+		all.splice(0, all.length - MAX_TRIALS)
+	}
+	saveTrials(all)
+}
+
+export function loadTrials(childId: string): Trial[] {
+	const all = loadAllTrials()
+	const out: Trial[] = []
+	for (let i = 0; i < all.length; i++) {
+		if (all[i].childId == childId) out.push(all[i])
+	}
+	return out
+}
+
+export function clearTrials(childId: string) {
+	const all = loadAllTrials()
+	const keep: Trial[] = []
+	for (let i = 0; i < all.length; i++) {
+		if (all[i].childId != childId) keep.push(all[i])
+	}
+	saveTrials(keep)
+}
+
+// ---------- 设置 ----------
+
+export function loadSettings() {
+	const raw = readString(K_SETTINGS)
+	if (raw == '') return
+	const o = JSON.parse(raw) as UTSJSONObject
+	const volume = o.getNumber('volume')
+	const showText = o.getBoolean('showText')
+	const autoVoice = o.getBoolean('autoVoice')
+	const deviceIp = o.getString('deviceIp')
+	if (volume != null) state.volume = volume
+	if (showText != null) state.showText = showText
+	if (autoVoice != null) state.autoVoice = autoVoice
+	if (deviceIp != null && deviceIp != '') state.deviceIp = deviceIp
+}
+
+export function saveSettings() {
+	const obj = {
+		volume: state.volume,
+		showText: state.showText,
+		autoVoice: state.autoVoice,
+		deviceIp: state.deviceIp
+	}
+	uni.setStorageSync(K_SETTINGS, JSON.stringify(obj))
+}

@@ -1,0 +1,135 @@
+<template>
+	<view class="page">
+		<view class="head">
+			<text class="back" @click="back">返回</text>
+			<text class="title">我的绘本</text>
+			<text class="ph"></text>
+		</view>
+
+		<swiper class="sw" :indicator-dots="true" indicator-color="#c9d8ea" indicator-active-color="#7fb2ef">
+			<swiper-item v-for="s in scenes" :key="s.id">
+				<view class="scene-box">
+					<text class="scene-name">{{ s.name }}</text>
+					<view class="grid">
+						<view
+							v-for="q in s.questions"
+							:key="q.id"
+							class="card"
+							:class="{ on: playing == q.id }"
+							@click="speak(q)"
+						>
+							<image class="card-img" :src="q.teachImage" mode="aspectFit"></image>
+							<text class="card-t">{{ q.teachText }}</text>
+						</view>
+					</view>
+				</view>
+			</swiper-item>
+		</swiper>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref } from 'vue'
+	import { Scene, Question } from '../../data/types.uts'
+	import { SCENES } from '../../data/scenes.uts'
+	import { play, stop } from '../../utils/audio.uts'
+
+	const scenes: Scene[] = SCENES
+	const playing = ref('')
+
+	onUnmounted(() => {
+		stop()
+	})
+
+	function speak(q: Question) {
+		stop()
+		playing.value = q.id
+		play(q.teachAudio, (ok: boolean) => {
+			playing.value = ''
+		})
+	}
+
+	function back() {
+		uni.navigateBack()
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		padding: 20px 18px;
+	}
+
+	.head {
+		flex-direction: row;
+		align-items: center;
+		height: 48px;
+	}
+
+	.back {
+		font-size: 16px;
+		color: #2f7fd8;
+		width: 60px;
+	}
+
+	.title {
+		flex: 1;
+		text-align: center;
+		font-size: 22px;
+		color: #1f2d3d;
+	}
+
+	.ph {
+		width: 60px;
+	}
+
+	.sw {
+		flex: 1;
+		margin-top: 12px;
+	}
+
+	.scene-box {
+		flex: 1;
+		padding-bottom: 30px;
+	}
+
+	.scene-name {
+		font-size: 24px;
+		color: #1f2d3d;
+		margin-bottom: 10px;
+	}
+
+	.grid {
+		flex-direction: row;
+		flex-wrap: wrap;
+		justify-content: space-between;
+	}
+
+	.card {
+		width: 48%;
+		background-color: #ffffff;
+		border-radius: 16px;
+		border-width: 2px;
+		border-style: solid;
+		border-color: #ffffff;
+		padding: 8px;
+		margin-bottom: 12px;
+	}
+
+	.card.on {
+		border-color: #7fb2ef;
+	}
+
+	.card-img {
+		width: 100%;
+		height: 110px;
+		border-radius: 10px;
+	}
+
+	.card-t {
+		font-size: 15px;
+		color: #24313f;
+		margin-top: 6px;
+	}
+</style>

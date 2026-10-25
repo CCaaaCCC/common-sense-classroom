@@ -1,0 +1,253 @@
+<template>
+	<view class="page">
+		<view class="stars">
+			<text class="star" :class="{ on: stars >= 1 }">★</text>
+			<text class="star" :class="{ on: stars >= 2 }">★</text>
+			<text class="star" :class="{ on: stars >= 3 }">★</text>
+		</view>
+
+		<text class="main">一次答对 {{ passed }} 题，重教 {{ reteach }} 题</text>
+		<text class="sub" v-if="reveal > 0">公布答案 {{ reveal }} 题</text>
+
+		<view class="wrong" v-if="wrongList.length > 0">
+			<text class="wrong-t">需要再看一遍</text>
+			<view class="row" v-for="w in wrongList" :key="w.qid">
+				<text class="row-q">{{ w.qid }}</text>
+				<text class="row-t">{{ w.text }}</text>
+				<text class="row-play" @click="replay(w.audio)">再听</text>
+			</view>
+		</view>
+
+		<view class="footer">
+			<view class="btn" @click="again"><text class="btn-t">再玩一次</text></view>
+			<view class="btn2" @click="book"><text class="btn2-t">看绘本</text></view>
+			<view class="home" @click="home"><text class="home-t">回首页</text></view>
+		</view>
+	</view>
+</template>
+
+<script setup lang="ts">
+	import { ref, computed } from 'vue'
+	import { Trial, Question } from '../../data/types.uts'
+	import { sceneOf } from '../../data/scenes.uts'
+	import { state, startSession } from '../../store/index.uts'
+	import { loadTrials } from '../../utils/storage.uts'
+	import { play, stop } from '../../utils/audio.uts'
+	import { roundsOf, Round } from '../../utils/analysis.uts'
+
+	type Wrong = { qid: string, text: string, audio: string }
+
+	const list = ref<Trial[]>([])
+
+	onMounted(() => {
+		// 与家长端统计共用同一套轮次分组，避免两处题数不一致
+		const rounds = roundsOf(loadTrials(state.activeChildId))
+		let picked: Round | null = null
+		for (let i = 0; i < rounds.length; i++) {
+			if (state.sessionId != '' && rounds[i].sid == state.sessionId) picked = rounds[i]
+		}
+		if (picked == null) {
+			// 兜底：取结束时间不晚于本轮的最后一轮
+			for (let i = 0; i < rounds.length; i++) {
+				if (rounds[i].startTs <= state.resultEndTs) picked = rounds[i]
+			}
+		}
+		list.value = picked == null ? [] : picked.trials
+	})
+
+	onUnmounted(() => {
+		stop()
+	})
+
+	const total = computed((): number => {
+		return list.value.length
+	})
+
+	const passed = computed((): number => {
+		let n = 0
+		for (let i = 0; i < list.value.length; i++) {
+			if (list.value[i].hint == 0) n = n + 1
+		}
+		return n
+	})
+
+	const reteach = computed((): number => {
+		let n = 0
+		for (let i = 0; i < list.value.length; i++) {
+			if (list.value[i].hint == 1) n = n + 1
+		}
+		return n
+	})
+
+	const reveal = computed((): number => {
+		let n = 0
+		for (let i = 0; i < list.value.length; i++) {
+			if (list.value[i].hint == 2) n = n + 1
+		}
+		return n
+	})
+
+	const stars = computed((): number => {
+		if (total.value == 0) return 0
+		const rate = passed.value / total.value
+		if (rate >= 0.8) return 3
+		if (rate >= 0.5) return 2
+		return 1
+	})
+
+	const wrongList = computed((): Wrong[] => {
+		const out: Wrong[] = []
+		const scene = sceneOf(state.resultSceneId)
+		for (let i = 0; i < list.value.length; i++) {
+			const t = list.value[i]
+			if (t.hint < 1) continue
+			let q: Question | null = null
+			for (let k = 0; k < scene.questions.length; k++) {
+				if (scene.questions[k].id == t.qid) q = scene.questions[k]
+			}
+			if (q != null) {
+				out.push({ qid: q.id, text: q.teachText, audio: q.teachAudio } as Wrong)
+			}
+		}
+		return out
+	})
+
+	function replay(src: string) {
+		stop()
+		play(src, (ok: boolean) => {})
+	}
+
+	function again() {
+		startSession(state.resultSceneId, state.cfgCount)
+		uni.redirectTo({ url: '/pages/session/session' })
+	}
+
+	function book() {
+		uni.navigateTo({ url: '/pages/book/book' })
+	}
+
+	function home() {
+		uni.reLaunch({ url: '/pages/home/home' })
+	}
+</script>
+
+<style>
+	.page {
+		flex: 1;
+		background-color: #f6f8fb;
+		padding: 28px 20px;
+	}
+
+	.stars {
+		flex-direction: row;
+		justify-content: center;
+		margin-top: 16px;
+	}
+
+	.star {
+		font-size: 64px;
+		color: #dfe6ef;
+		margin-left: 8px;
+		margin-right: 8px;
+	}
+
+	.star.on {
+		color: #f5c451;
+	}
+
+	.main {
+		font-size: 24px;
+		color: #1f2d3d;
+		text-align: center;
+		margin-top: 20px;
+	}
+
+	.sub {
+		font-size: 17px;
+		color: #d9822b;
+		text-align: center;
+		margin-top: 8px;
+	}
+
+	.wrong {
+		margin-top: 24px;
+	}
+
+	.wrong-t {
+		font-size: 17px;
+		color: #8a9bb0;
+		margin-bottom: 8px;
+	}
+
+	.row {
+		flex-direction: row;
+		align-items: center;
+		background-color: #ffffff;
+		border-radius: 14px;
+		padding: 14px;
+		margin-bottom: 8px;
+	}
+
+	.row-q {
+		font-size: 14px;
+		color: #a8b4c4;
+		width: 66px;
+	}
+
+	.row-t {
+		flex: 1;
+		font-size: 17px;
+		color: #24313f;
+	}
+
+	.row-play {
+		font-size: 15px;
+		color: #2f7fd8;
+		padding: 6px 10px;
+	}
+
+	.footer {
+		flex: 1;
+		justify-content: flex-end;
+	}
+
+	.btn {
+		height: 80px;
+		border-radius: 22px;
+		background-color: #7fb2ef;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 12px;
+	}
+
+	.btn-t {
+		font-size: 26px;
+		color: #ffffff;
+	}
+
+	.btn2 {
+		height: 68px;
+		border-radius: 20px;
+		background-color: #ffffff;
+		border-width: 1px;
+		border-style: solid;
+		border-color: #e3e9f2;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn2-t {
+		font-size: 22px;
+		color: #24313f;
+	}
+
+	.home {
+		align-items: center;
+		padding: 16px;
+	}
+
+	.home-t {
+		font-size: 16px;
+		color: #8a9bb0;
+	}
+</style>

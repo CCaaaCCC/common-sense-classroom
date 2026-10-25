@@ -1,0 +1,222 @@
+import { Trial } from '../data/types.uts'
+import { sceneOf } from '../data/scenes.uts'
+
+// 老数据没有 sid，只能按时间切轮：同一场景内相邻两条间隔超过 30 分钟算新的一轮
+const LEGACY_GAP = 30 * 60 * 1000
+
+export type Round = {
+	sid: string
+	sceneId: string
+	legacy: boolean
+	startTs: number
+	endTs: number
+	total: number
+	first: number
+	final: number
+	trials: Trial[]
+}
+
+export type QStat = {
+	sceneId: string
+	qid: string
+	total: number
+	first: number
+	final: number
+	avgMs: number
+	hasMs: boolean
+}
+
+export type Summary = {
+	total: number
+	first: number
+	final: number
+	avgMs: number
+	hasMs: boolean
+}
+
+export function pct(part: number, whole: number): string {
+	if (whole <= 0) return '—'
+	return Math.round(part * 100 / whole).toString() + '%'
+}
+
+export function msText(v: number, has: boolean): string {
+	if (!has) return '—'
+	return Math.round(v).toString() + 'ms'
+}
+
+function pad2(n: number): string {
+	return n < 10 ? '0' + n.toString() : n.toString()
+}
+
+export function dateText(ts: number): string {
+	const d = new Date(ts)
+	return d.getFullYear().toString() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+}
+
+export function dateTimeText(ts: number): string {
+	const d = new Date(ts)
+	return dateText(ts) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes())
+}
+
+// ---------- 轮次 ----------
+
+export function roundsOf(trials: Trial[]): Round[] {
+	const sorted: Trial[] = []
+	for (let i = 0; i < trials.length; i++) sorted.push(trials[i])
+	sorted.sort((a: Trial, b: Trial): number => a.ts - b.ts)
+
+	const out: Round[] = []
+	let cur: Round | null = null
+
+	for (let i = 0; i < sorted.length; i++) {
+		const t = sorted[i]
+		let join = false
+		if (cur != null) {
+			if (t.sid != '') {
+				// 有 sid 的绝不跨轮合并
+				join = cur.sid == t.sid && cur.sid != ''
+			} else {
+				join = cur.sid == '' && cur.sceneId == t.sceneId && (t.ts - cur.endTs) <= LEGACY_GAP
+			}
+		}
+		if (!join) {
+			const r: Round = {
+				sid: t.sid,
+				sceneId: t.sceneId,
+				legacy: t.sid == '',
+				startTs: t.ts,
+				endTs: t.ts,
+				total: 0,
+				first: 0,
+				final: 0,
+				trials: [] as Trial[]
+			} as Round
+			out.push(r)
+			cur = r
+		}
+		if (cur != null) {
+			cur.total = cur.total + 1
+			cur.endTs = t.ts
+			if (t.hint == 0) cur.first = cur.first + 1
+			if (t.hint <= 1) cur.final = cur.final + 1
+			cur.trials.push(t)
+		}
+	}
+	return out
+}
+
+// 趋势图只取「非 legacy 且题数 >= 2」的轮，取最近 n 轮
+export function trendRounds(trials: Trial[], n: number): Round[] {
+	const all = roundsOf(trials)
+	const valid: Round[] = []
+	for (let i = 0; i < all.length; i++) {
+		const r = all[i]
+		if (!r.legacy && r.total >= 2) valid.push(r)
+	}
+	const start = valid.length > n ? valid.length - n : 0
+	const out: Round[] = []
+	for (let i = start; i < valid.length; i++) out.push(valid[i])
+	return out
+}
+
+export function recentRounds(trials: Trial[], n: number): Round[] {
+	const all = roundsOf(trials)
+	const out: Round[] = []
+	const start = all.length > n ? all.length - n : 0
+	for (let i = start; i < all.length; i++) out.push(all[i])
+	return out
+}
+
+// ---------- 单题 ----------
+
+export function qStatsOf(trials: Trial[]): QStat[] {
+	const out: QStat[] = []
+	for (let i = 0; i < trials.length; i++) {
+		const t = trials[i]
+		let idx = -1
+		for (let k = 0; k < out.length; k++) {
+			if (out[k].qid == t.qid) idx = k
+		}
+		if (idx < 0) {
+			out.push({
+				sceneId: t.sceneId,
+				qid: t.qid,
+				total: 0,
+				first: 0,
+				final: 0,
+				avgMs: 0,
+				hasMs: false
+			} as QStat)
+			idx = out.length - 1
+		}
+		const s = out[idx]
+		s.total = s.total + 1
+		if (t.hint == 0) {
+			s.first = s.first + 1
+			s.avgMs = s.avgMs + t.ms
+			s.hasMs = true
+		}
+		if (t.hint <= 1) s.final = s.final + 1
+	}
+	// 平均反应时只除一次通过的题
+	for (let i = 0; i < out.length; i++) {
+		if (out[i].first > 0) out[i].avgMs = out[i].avgMs / out[i].first
+	}
+	// 正确率低的排前面（最需要重教的先看到）
+	out.sort((a: QStat, b: QStat): number => {
+		const ra = a.total == 0 ? 0 : a.first * 1000 / a.total
+		const rb = b.total == 0 ? 0 : b.first * 1000 / b.total
+		if (ra == rb) return b.total - a.total
+		return ra < rb ? -1 : 1
+	})
+	return out
+}
+
+// ---------- 概览 ----------
+
+export function summaryOf(trials: Trial[]): Summary {
+	let first = 0
+	let final = 0
+	let msSum = 0
+	for (let i = 0; i < trials.length; i++) {
+		const t = trials[i]
+		if (t.hint == 0) {
+			first = first + 1
+			msSum = msSum + t.ms
+		}
+		if (t.hint <= 1) final = final + 1
+	}
+	return {
+		total: trials.length,
+		first: first,
+		final: final,
+		avgMs: first > 0 ? msSum / first : 0,
+		hasMs: first > 0
+	} as Summary
+}
+
+// ---------- CSV ----------
+
+function esc(s: string): string {
+	if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+		return '"' + s.split('"').join('""') + '"'
+	}
+	return s
+}
+
+export function csvOf(childName: string, trials: Trial[]): string {
+	let body = 'child,scene,qid,opt,hint,ms,time,sid\r\n'
+	for (let i = 0; i < trials.length; i++) {
+		const t = trials[i]
+		body = body + esc(childName) + ','
+			+ esc(sceneOf(t.sceneId).name) + ','
+			+ t.qid + ','
+			+ t.optId + ','
+			+ t.hint.toString() + ','
+			+ t.ms.toString() + ','
+			+ dateTimeText(t.ts) + ','
+			+ t.sid + '\r\n'
+	}
+	// BOM 让 Excel 正确识别 UTF-8
+	return '\uFEFF' + body
+}

@@ -1,0 +1,198 @@
+import { state } from '../store/index.uts'
+
+// 与 ESP32（或 PC 模拟器）的 WebSocket 长连接。
+// uni-app x 没有 offMessage，重复注册会叠加监听，所以整个 App 只维护一个 SocketTask。
+let socket: SocketTask | null = null
+let connected = false
+let manualClose = false
+let retry = 0
+let retryTimer = 0
+let hbTimer = 0
+let lastRx = 0
+
+let handler: ((m: UTSJSONObject) => void) | null = null
+let openHandler: (() => void) | null = null
+
+export function onDeviceMessage(cb: (m: UTSJSONObject) => void) {
+	handler = cb
+}
+
+export function clearDeviceMessage() {
+	handler = null
+}
+
+// 重连成功后的回调：session 用它重新下发当前题
+export function onDeviceOpen(cb: () => void) {
+	openHandler = cb
+}
+
+export function clearDeviceOpen() {
+	openHandler = null
+}
+
+export function isOnline(): boolean {
+	return connected
+}
+
+// 允许填 "192.168.4.1"（真实板子，端口 81）或 "192.168.1.109:8081"（PC 模拟器）
+function buildUrl(addr: string): string {
+	// 中文输入法常把半角冒号打成全角，这里统一
+	const clean = addr.trim().replace('：', ':')
+	let host = clean
+	let port = '81'
+	const i = host.indexOf(':')
+	if (i > 0) {
+		port = host.substring(i + 1).trim()
+		host = host.substring(0, i).trim()
+	}
+	return 'ws://' + host + ':' + port + '/'
+}
+
+export function connect(addr: string) {
+	const ip = addr.trim()
+	if (ip == '') return
+	state.deviceIp = ip
+	manualClose = false
+	retry = 0
+	doConnect(ip)
+}
+
+export function disconnect() {
+	manualClose = true
+	if (retryTimer != 0) {
+		clearTimeout(retryTimer)
+		retryTimer = 0
+	}
+	stopHeartbeat()
+	closeSocket()
+	connected = false
+	state.deviceOnline = false
+}
+
+function closeSocket() {
+	if (socket != null) {
+		socket.close({})
+		socket = null
+	}
+}
+
+function scheduleRetry(ip: string) {
+	if (retryTimer != 0) return
+	retry = retry + 1
+	let delay = 1000
+	if (retry == 2) delay = 2000
+	if (retry >= 3) delay = 4000
+	if (retry >= 5) delay = 8000
+	retryTimer = setTimeout(() => {
+		retryTimer = 0
+		if (!manualClose) doConnect(ip)
+	}, delay)
+}
+
+function doConnect(ip: string) {
+	closeSocket()
+	const url = buildUrl(ip)
+	console.log('[DEV] connect ' + url)
+	const s = uni.connectSocket({ url: url })
+
+	socket = s
+	s.onOpen(() => {
+		console.log('[DEV] open')
+		connected = true
+		retry = 0
+		lastRx = Date.now()
+		state.deviceOnline = true
+		startHeartbeat()
+	})
+
+	s.onMessage((res) => {
+		lastRx = Date.now()
+		const raw = res.data as string
+		if (raw == null) return
+		const msg = JSON.parse(raw) as UTSJSONObject
+		const t = msg.getString('t')
+		if (t == 'hello') {
+			// 先回 welcome，再让业务层补发 task，保证设备侧顺序正确
+			sendWelcome(state.sessionId)
+			if (openHandler != null) openHandler()
+			return
+		}
+		if (t == 'pong') return
+		if (handler != null) handler(msg)
+	})
+
+	s.onClose((res) => {
+		console.log('[DEV] close code=' + res.code.toString())
+		connected = false
+		state.deviceOnline = false
+		stopHeartbeat()
+		if (!manualClose) scheduleRetry(ip)
+	})
+
+	s.onError(() => {
+		console.log('[DEV] error')
+		connected = false
+		state.deviceOnline = false
+		stopHeartbeat()
+		closeSocket()
+		if (!manualClose) scheduleRetry(ip)
+	})
+}
+
+function startHeartbeat() {
+	stopHeartbeat()
+	hbTimer = setInterval(() => {
+		if (Date.now() - lastRx > 20000) {
+			// 20s 没有任何帧，判定断线，主动重连
+			closeSocket()
+			connected = false
+			state.deviceOnline = false
+			if (!manualClose) scheduleRetry(state.deviceIp)
+			return
+		}
+		sendPing()
+	}, 5000)
+}
+
+function stopHeartbeat() {
+	if (hbTimer != 0) {
+		clearInterval(hbTimer)
+		hbTimer = 0
+	}
+}
+
+function send(obj: UTSJSONObject) {
+	if (!connected || socket == null) return
+	socket.send({ data: JSON.stringify(obj) })
+}
+
+export function sendWelcome(sid: string) {
+	send({ t: 'welcome', sid: sid } as UTSJSONObject)
+}
+
+export function sendTask(sid: string, scene: string, qid: string, idx: number, total: number) {
+	send({
+		t: 'task',
+		sid: sid,
+		scene: scene,
+		qid: qid,
+		idx: idx,
+		total: total
+	} as UTSJSONObject)
+}
+
+export function sendDisarm(sid: string) {
+	send({ t: 'disarm', sid: sid } as UTSJSONObject)
+}
+
+export function sendReward(sid: string, qid: string, ok: boolean, hint: number) {
+	send({ t: 'reward', sid: sid, qid: qid, ok: ok, hint: hint } as UTSJSONObject)
+}
+
+export function sendIdle() {
+	send({ t: 'idle' } as UTSJSONObject)
+}
+
+function sendPing() {
+	send({ t: 'ping', ts: Date.now() } as UTSJSONObject)
+}
