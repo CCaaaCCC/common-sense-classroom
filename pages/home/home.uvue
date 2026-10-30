@@ -6,7 +6,7 @@
 			</view>
 			<view class="who">
 				<text class="name">{{ activeName }}</text>
-				<text class="sub">已训练 {{ trainCount }} 次</text>
+				<text class="sub">已答 {{ trainCount }} 题</text>
 			</view>
 			<text class="switch">切换</text>
 		</view>
@@ -60,8 +60,12 @@
 	onMounted(() => {
 		loadSettings()
 		refresh()
-		// 静默尝试连接硬件；失败不影响触屏使用
-		if (!autoConnected && state.deviceIp != '') {
+		if (state.storageBroken && !state.brokenWarned) {
+			state.brokenWarned = true
+			uni.showToast({ title: '本地数据异常，可在家长端重置', position: 'bottom' })
+		}
+		// 静默尝试连接硬件；家长在家长端手动断开后 autoConnect=false，回首页不再自动连
+		if (!autoConnected && state.autoConnect && !state.deviceOnline && state.deviceIp != '') {
 			autoConnected = true
 			connect(state.deviceIp)
 		}

@@ -5,6 +5,11 @@ export type State = {
 	volume: number
 	showText: boolean
 	autoVoice: boolean
+	// 是否允许首页静默自动连硬件；家长端手动「断开连接」会置 false，避免回首页又被连上
+	autoConnect: boolean
+	// 本地 JSON 解析失败时置 true，家长端据此提示并允许重置
+	storageBroken: boolean
+	brokenWarned: boolean
 	cfgSceneId: string
 	cfgCount: number
 	resultSceneId: string
@@ -21,6 +26,9 @@ export const state = reactive({
 	volume: 0.8,
 	showText: true,
 	autoVoice: true,
+	autoConnect: true,
+	storageBroken: false,
+	brokenWarned: false,
 	cfgSceneId: '',
 	cfgCount: 4,
 	resultSceneId: '',

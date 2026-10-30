@@ -2,7 +2,7 @@
 	<view class="page">
 		<view class="head">
 			<text class="back" @click="back">返回</text>
-			<text class="title">家长端</text>
+			<text class="title" @touchstart="titleDown" @touchend="titleUp" @touchcancel="titleUp">家长端</text>
 			<text class="switch" @click="goProfiles">切换</text>
 		</view>
 
@@ -14,17 +14,29 @@
 			<view class="tab" :class="{ on: tab == 2 }" @click="setTab(2)"><text class="tab-t">设置</text></view>
 		</view>
 
-		<!-- 记录 -->
+		<!-- 记录：按轮分组，首屏只渲染 50 轮，避免 2000 条 Trial 全部上屏 -->
 		<scroll-view v-if="tab == 0" class="list" direction="vertical" :show-scrollbar="false">
-			<view v-for="r in records" :key="r.id" class="row">
-				<view class="row-left">
-					<text class="row-scene">{{ sceneName(r.sceneId) }} · {{ r.qid }}</text>
-					<text class="row-time">{{ timeText(r.ts) }}</text>
+			<view class="rrow" v-for="r in recordRounds" :key="roundKey(r)">
+				<view class="rline" @click="toggleRecord(r)">
+					<view class="rleft">
+						<text class="rtime">{{ sceneName(r.sceneId) }} · {{ timeText(r.startTs) }}</text>
+						<text class="rnum">{{ r.total }} 题 · 一次通过 {{ pct(r.first, r.total) }}</text>
+					</view>
+					<text v-if="r.legacy" class="rtag">旧数据</text>
+					<text class="rexp">{{ isRecordOpen(r) ? '收起' : '展开' }}</text>
 				</view>
-				<text class="tag" :class="tagClass(r.hint)">{{ tagText(r.hint) }}</text>
-				<text class="row-ms">{{ r.ms }}ms</text>
+				<view v-if="isRecordOpen(r)" class="rdetail">
+					<view class="drow" v-for="t in r.trials" :key="t.id">
+						<text class="dq">{{ t.qid }}</text>
+						<text class="dh" :class="tagClass(t.hint)">{{ tagText(t.hint) }}</text>
+						<text class="dm">{{ t.ms }}ms</text>
+					</view>
+				</view>
 			</view>
-			<text v-if="records.length == 0" class="empty">还没有训练记录。</text>
+			<text v-if="recordRounds.length == 0" class="empty">还没有训练记录。</text>
+			<view v-if="recordRounds.length < allRounds.length" class="loadmore" @click="loadMore">
+				<text class="loadmore-t">加载更多（还有 {{ allRounds.length - recordRounds.length }} 轮）</text>
+			</view>
 		</scroll-view>
 
 		<!-- 统计 -->
@@ -44,11 +56,11 @@
 				</view>
 			</view>
 
-			<text class="sec">最近 {{ trend.length }} 轮趋势</text>
+			<text class="sec">最近 {{ trend.length }} 轮一次通过率</text>
 			<view class="chart" v-if="trend.length > 0">
 				<view class="col" v-for="r in trend" :key="r.sid + '-' + r.startTs">
 					<view class="bar" :style="'height:' + barHeight(r) + 'px'"></view>
-					<text class="col-t">{{ r.total }}</text>
+					<text class="col-t">{{ pct(r.first, r.total) }}</text>
 				</view>
 			</view>
 			<text v-else class="empty">还没有完整的一轮训练</text>
@@ -130,27 +142,40 @@
 			<view class="clear" @click="clearAll">
 				<text class="clear-t">清空当前孩子的记录</text>
 			</view>
+
+			<view v-if="state.storageBroken" class="warn">
+				<text class="warn-t">本地数据读取失败，统计可能不完整。</text>
+			</view>
+			<view class="clear reset" @click="resetAll">
+				<text class="clear-t">重置本地数据（含全部档案与记录）</text>
+			</view>
 		</scroll-view>
 	</view>
 </template>
 
 <script setup lang="ts">
-	import { ref, watch } from 'vue'
+	import { ref, computed, watch } from 'vue'
 	import { Trial } from '../../data/types.uts'
 	import { sceneOf } from '../../data/scenes.uts'
 	import { state } from '../../store/index.uts'
 	import {
-		loadProfiles, loadTrials, clearTrials, timeText, loadSettings, saveSettings
+		loadProfiles, loadTrials, clearTrials, timeText, loadSettings, saveSettings, resetLocalData
 	} from '../../utils/storage.uts'
 	import {
-		pct, msText, summaryOf, qStatsOf, trendRounds, recentRounds, csvOf, dateTimeText,
+		pct, msText, summaryOf, qStatsOf, trendRounds, recentRounds, roundsOf, csvOf, dateTimeText,
 		Summary, QStat, Round
 	} from '../../utils/analysis.uts'
 	import { connect, disconnect } from '../../utils/device.uts'
+	import { runSelfCheck } from '../../utils/selfcheck.uts'
+
+	// 记录页每屏多少轮；2000 条 Trial 全量渲染会明显卡顿
+	const PAGE_ROUNDS = 50
 
 	const tab = ref(0)
 	const childName = ref('未选择')
-	const records = ref<Trial[]>([])
+	const allRounds = ref<Round[]>([])
+	const shownRounds = ref(PAGE_ROUNDS)
+	const openRecordKey = ref('')
 	const summary = ref<Summary>({ total: 0, first: 0, final: 0, avgMs: 0, hasMs: false } as Summary)
 	const qStats = ref<QStat[]>([])
 	const trend = ref<Round[]>([])
@@ -158,6 +183,16 @@
 	const expandedKey = ref('')
 	const exporting = ref(false)
 	const ipInput = ref('192.168.4.1')
+
+	// 只渲染前 shownRounds 轮；展开的明细最多 8 行，整屏行数可控
+	const recordRounds = computed((): Round[] => {
+		const out: Round[] = []
+		for (let i = 0; i < allRounds.value.length; i++) {
+			if (out.length >= shownRounds.value) break
+			out.push(allRounds.value[i])
+		}
+		return out
+	})
 
 	onMounted(() => {
 		loadSettings()
@@ -176,6 +211,8 @@
 			return
 		}
 		state.deviceIp = ip
+		// 手动连接 = 恢复「回首页自动连」的意图
+		state.autoConnect = true
 		saveSettings()
 		connect(ip)
 		uni.showToast({ title: '正在连接…', position: 'bottom' })
@@ -183,20 +220,45 @@
 
 	function disconnectDevice() {
 		disconnect()
+		// 记住「不要自动连」，否则 reLaunch 回首页时又会被静默连上
+		state.autoConnect = false
+		saveSettings()
 		uni.showToast({ title: '已断开', position: 'bottom' })
 	}
 
 	function refresh() {
 		const list = loadProfiles()
+		childName.value = '未选择'
 		for (let i = 0; i < list.length; i++) {
 			if (list[i].id == state.activeChildId) childName.value = list[i].name
 		}
 
 		const all = loadTrials(state.activeChildId)
-		const desc: Trial[] = []
-		for (let i = all.length - 1; i >= 0; i--) desc.push(all[i])
-		records.value = desc
+		buildRounds(all)
 		buildView(all)
+	}
+
+	// 记录 tab：按轮倒序（最近的在前），分页由 shownRounds 控制
+	function buildRounds(all: Trial[]) {
+		const rounds = roundsOf(all)
+		const desc: Round[] = []
+		for (let i = rounds.length - 1; i >= 0; i--) desc.push(rounds[i])
+		allRounds.value = desc
+		shownRounds.value = PAGE_ROUNDS
+		openRecordKey.value = ''
+	}
+
+	function loadMore() {
+		shownRounds.value = shownRounds.value + PAGE_ROUNDS
+	}
+
+	function isRecordOpen(r: Round): boolean {
+		return openRecordKey.value == roundKey(r)
+	}
+
+	function toggleRecord(r: Round) {
+		const k = roundKey(r)
+		openRecordKey.value = openRecordKey.value == k ? '' : k
 	}
 
 	function buildView(all: Trial[]) {
@@ -247,7 +309,8 @@
 		if (dir.length > 0 && dir.substring(dir.length - 1) == '/') {
 			dir = dir.substring(0, dir.length - 1)
 		}
-		const path = dir + '/trials_' + childName.value + '_' + stampNow() + '.csv'
+		// 文件名只用 ASCII：孩子名字里可能有 "/"、空格等，写入会直接失败
+		const path = dir + '/trials_' + stampNow() + '.csv'
 		const fs = uni.getFileSystemManager()
 		fs.writeFile({
 			filePath: path,
@@ -319,6 +382,45 @@
 			}
 		})
 	}
+
+	// 存储损坏或换人时的最后一次自救：清空全部档案/记录/设置
+	function resetAll() {
+		uni.showModal({
+			title: '重置本地数据',
+			content: '会删除全部孩子档案、训练记录与设置，且无法恢复。确定吗？',
+			success: (res) => {
+				if (res.confirm) {
+					disconnect()
+					resetLocalData()
+					ipInput.value = state.deviceIp
+					refresh()
+					uni.showToast({ title: '已重置', position: 'bottom' })
+				}
+			}
+		})
+	}
+
+	// 长按标题 3 秒跑统计口径自检（孩子不会去点标题，不做可见入口）
+	let titleTimer = 0
+
+	function titleDown() {
+		if (titleTimer != 0) return
+		titleTimer = setTimeout(() => {
+			titleTimer = 0
+			uni.showModal({ title: '统计自检', content: runSelfCheck(), showCancel: false })
+		}, 3000)
+	}
+
+	function titleUp() {
+		if (titleTimer != 0) {
+			clearTimeout(titleTimer)
+			titleTimer = 0
+		}
+	}
+
+	onUnmounted(() => {
+		titleUp()
+	})
 
 	function goProfiles() {
 		uni.navigateTo({ url: '/pages/profiles/profiles' })
@@ -398,57 +500,18 @@
 		margin-top: 12px;
 	}
 
-	.row {
-		flex-direction: row;
-		align-items: center;
-		background-color: #ffffff;
+	.loadmore {
+		height: 60px;
 		border-radius: 14px;
-		padding: 14px;
-		margin-bottom: 8px;
+		background-color: #ffffff;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 12px;
 	}
 
-	.row-left {
-		flex: 1;
-	}
-
-	.row-scene {
-		font-size: 17px;
-		color: #24313f;
-	}
-
-	.row-time {
-		font-size: 13px;
-		color: #a8b4c4;
-		margin-top: 4px;
-	}
-
-	.tag {
-		font-size: 13px;
-		border-radius: 8px;
-		padding: 4px 8px;
-		margin-right: 8px;
-	}
-
-	.tag.g {
-		color: #2f9e6a;
-		background-color: #eafaf2;
-	}
-
-	.tag.b {
+	.loadmore-t {
+		font-size: 16px;
 		color: #2f7fd8;
-		background-color: #e8f3ff;
-	}
-
-	.tag.o {
-		color: #c2762a;
-		background-color: #fdf1e3;
-	}
-
-	.row-ms {
-		font-size: 13px;
-		color: #a8b4c4;
-		width: 56px;
-		text-align: right;
 	}
 
 	.empty {
@@ -735,6 +798,22 @@
 
 	.clear-t {
 		font-size: 17px;
+		color: #c2762a;
+	}
+
+	.clear.reset {
+		margin-top: 12px;
+	}
+
+	.warn {
+		background-color: #fdf1e3;
+		border-radius: 14px;
+		padding: 12px;
+		margin-top: 16px;
+	}
+
+	.warn-t {
+		font-size: 14px;
 		color: #c2762a;
 	}
 </style>

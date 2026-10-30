@@ -14,12 +14,24 @@ function readString(key: string): string {
 	return v as string
 }
 
+// 存储里可能残留半截写入/非法 JSON。这里只做降级（返回空 + 打标记），
+// 绝不在这里删用户数据；重置要家长在家长端二次确认。
+function markBroken(key: string) {
+	state.storageBroken = true
+	console.log('[STORAGE] bad json: ' + key)
+}
+
 function readObjects(key: string): Array<UTSJSONObject> {
 	const raw = readString(key)
 	if (raw == '') return [] as Array<UTSJSONObject>
-	const parsed = JSON.parse(raw)
-	if (parsed == null) return [] as Array<UTSJSONObject>
-	return parsed as Array<UTSJSONObject>
+	try {
+		const parsed = JSON.parse(raw)
+		if (parsed == null) return [] as Array<UTSJSONObject>
+		return parsed as Array<UTSJSONObject>
+	} catch (e) {
+		markBroken(key)
+		return [] as Array<UTSJSONObject>
+	}
 }
 
 export function newId(): string {
@@ -176,15 +188,22 @@ export function clearTrials(childId: string) {
 export function loadSettings() {
 	const raw = readString(K_SETTINGS)
 	if (raw == '') return
-	const o = JSON.parse(raw) as UTSJSONObject
-	const volume = o.getNumber('volume')
-	const showText = o.getBoolean('showText')
-	const autoVoice = o.getBoolean('autoVoice')
-	const deviceIp = o.getString('deviceIp')
-	if (volume != null) state.volume = volume
-	if (showText != null) state.showText = showText
-	if (autoVoice != null) state.autoVoice = autoVoice
-	if (deviceIp != null && deviceIp != '') state.deviceIp = deviceIp
+	try {
+		const o = JSON.parse(raw) as UTSJSONObject
+		const volume = o.getNumber('volume')
+		const showText = o.getBoolean('showText')
+		const autoVoice = o.getBoolean('autoVoice')
+		const autoConnect = o.getBoolean('autoConnect')
+		const deviceIp = o.getString('deviceIp')
+		if (volume != null) state.volume = volume
+		if (showText != null) state.showText = showText
+		if (autoVoice != null) state.autoVoice = autoVoice
+		// 老数据没有这个键，缺省视为允许自动连接
+		if (autoConnect != null) state.autoConnect = autoConnect
+		if (deviceIp != null && deviceIp != '') state.deviceIp = deviceIp
+	} catch (e) {
+		markBroken(K_SETTINGS)
+	}
 }
 
 export function saveSettings() {
@@ -192,7 +211,33 @@ export function saveSettings() {
 		volume: state.volume,
 		showText: state.showText,
 		autoVoice: state.autoVoice,
+		autoConnect: state.autoConnect,
 		deviceIp: state.deviceIp
 	}
 	uni.setStorageSync(K_SETTINGS, JSON.stringify(obj))
+}
+
+// 家长端「重置本地数据」：清空 4 个键并恢复默认设置。
+// 用写空串代替 removeStorageSync，readString 已把空串视为「没有数据」。
+export function resetLocalData() {
+	uni.setStorageSync(K_PROFILES, '')
+	uni.setStorageSync(K_ACTIVE, '')
+	uni.setStorageSync(K_TRIALS, '')
+	uni.setStorageSync(K_SETTINGS, '')
+	state.activeChildId = ''
+	state.volume = 0.8
+	state.showText = true
+	state.autoVoice = true
+	state.autoConnect = true
+	state.deviceIp = '192.168.4.1'
+	state.deviceOnline = false
+	state.storageBroken = false
+	state.brokenWarned = false
+	state.cfgSceneId = ''
+	state.cfgCount = 4
+	state.resultSceneId = ''
+	state.resultStartTs = 0
+	state.resultEndTs = 0
+	state.sessionId = ''
+	bumpProfiles()
 }
