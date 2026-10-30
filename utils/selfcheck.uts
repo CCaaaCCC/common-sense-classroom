@@ -1,0 +1,79 @@
+import { Trial } from '../data/types.uts'
+import { roundsOf, summaryOf, qStatsOf, trendRounds, csvOf, pct } from './analysis.uts'
+
+// 统计口径自检：家长端长按标题 3 秒触发（孩子不会去点标题，不做可见入口）。
+// 用合成数据断言 analysis.uts 的口径，避免以后改统计算法时悄悄改坏结果页与家长端。
+function mk(id: string, sceneId: string, qid: string, hint: number, ms: number, ts: number, sid: string): Trial {
+	return {
+		id: id,
+		childId: 'c1',
+		sceneId: sceneId,
+		qid: qid,
+		optId: hint == 0 ? 'a' : 'b',
+		ok: hint == 0,
+		hint: hint,
+		ms: ms,
+		ts: ts,
+		sid: sid
+	} as Trial
+}
+
+export function runSelfCheck(): string {
+	let total = 0
+	let pass = 0
+	let fail = ''
+	const check = (name: string, ok: boolean) => {
+		total = total + 1
+		if (ok) {
+			pass = pass + 1
+		} else if (fail == '') {
+			fail = name
+		}
+	}
+
+	const base = 1700000000000
+	// 一轮 s1：一次通过 / 重教后通过 / 公布答案 各一条
+	const a = mk('t1', 'class', 'CL-01', 0, 1000, base, 's1')
+	const b = mk('t2', 'class', 'CL-02', 1, 2000, base + 5000, 's1')
+	const c = mk('t3', 'class', 'CL-03', 2, 3000, base + 10000, 's1')
+	const s1: Trial[] = [a, b, c]
+
+	const rounds = roundsOf(s1)
+	check('sid 相同的三条合成一轮', rounds.length == 1)
+	check('轮次 total/first/final', rounds.length == 1 && rounds[0].total == 3 && rounds[0].first == 1 && rounds[0].final == 2)
+	check('新数据不标记为 legacy', rounds.length == 1 && !rounds[0].legacy)
+
+	const sum = summaryOf(s1)
+	check('概览题数', sum.total == 3)
+	check('一次通过 / 最终通过', sum.first == 1 && sum.final == 2)
+	check('平均反应时只算 hint==0', sum.hasMs && Math.round(sum.avgMs) == 1000)
+
+	const none = summaryOf([b, c])
+	check('没有一次通过时 hasMs=false', !none.hasMs && none.avgMs == 0)
+
+	// 同一题两次一次通过：平均反应时取均值
+	const a2 = mk('t4', 'class', 'CL-01', 0, 3000, base + 20000, 's2')
+	const qs = qStatsOf([a, a2])
+	check('单题样本合并', qs.length == 1 && qs[0].total == 2 && qs[0].first == 2)
+	check('单题平均反应时', qs.length == 1 && Math.round(qs[0].avgMs) == 2000)
+
+	// 老数据没有 sid：间隔 31 分钟切轮，100 秒内合并
+	const d = mk('t5', 'cross', 'CR-01', 0, 4000, base, '')
+	const e = mk('t6', 'cross', 'CR-02', 0, 6000, base + 1860000, '')
+	const f = mk('t7', 'cross', 'CR-03', 0, 6000, base + 1960000, '')
+	const lr = roundsOf([d, e, f])
+	check('legacy 30 分钟切轮', lr.length == 2 && lr[0].total == 1 && lr[1].total == 2)
+	check('legacy 轮次标记', lr.length == 2 && lr[0].legacy && lr[1].legacy)
+	check('趋势只含有 sid 且题数>=2 的轮', trendRounds([a, b, c, d], 10).length == 1)
+
+	check('0 样本显示 —', pct(0, 0) == '—')
+	check('百分比取整', pct(1, 3) == '33%')
+
+	const csv = csvOf('小,明', s1)
+	check('CSV 带 BOM', csv.indexOf('\uFEFF') == 0)
+	check('CSV 转义逗号', csv.indexOf('"小,明"') > 0)
+	check('CSV 表头 + 3 行', csv.split('\r\n').length == 5)
+
+	if (fail != '') return '自检失败：' + fail + '（' + pass.toString() + '/' + total.toString() + '）'
+	return '自检通过 ' + pass.toString() + '/' + total.toString()
+}
