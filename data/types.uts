@@ -42,16 +42,3 @@ export type Trial = {
 	ts: number
 	sid: string
 }
-
-export type SessionCfg = {
-	childId: string
-	sceneId: string
-	count: number
-}
-
-export type SessionResult = {
-	sceneId: string
-	trials: Trial[]
-	startTs: number
-	endTs: number
-}

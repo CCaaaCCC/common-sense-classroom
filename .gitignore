@@ -2,6 +2,9 @@
 unpackage/
 dist/
 
+# 固件构建产物（arduino-cli / Arduino IDE 生成）
+tools/firmware/**/build/
+
 # 依赖
 node_modules/
 
