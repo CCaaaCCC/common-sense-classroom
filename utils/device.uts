@@ -2,6 +2,12 @@ import { state } from '../store/index.uts'
 
 // 与 ESP32（或 PC 模拟器）的 WebSocket 长连接。
 // uni-app x 没有 offMessage，重复注册会叠加监听，所以整个 App 只维护一个 SocketTask。
+//
+// gen 是「连接代次」：doConnect / disconnect 都会自增，所有 socket 回调先校验代次。
+// 没有它会出现两个经典问题：
+//   1) connect() 在已连接时被再次调用 → 旧 socket 的 onClose 触发重连 → 关掉刚连上的
+//      socket → 又触发重连，形成 1 秒一次的自我维持循环；
+//   2) 旧 socket 的 onError/onClose 迟到一个心跳周期，把新连接标记成离线。
 let socket: SocketTask | null = null
 let connected = false
 let manualClose = false
@@ -9,6 +15,7 @@ let retry = 0
 let retryTimer = 0
 let hbTimer = 0
 let lastRx = 0
+let gen = 0
 
 let handler: ((m: UTSJSONObject) => void) | null = null
 let openHandler: (() => void) | null = null
@@ -21,7 +28,7 @@ export function clearDeviceMessage() {
 	handler = null
 }
 
-// 重连成功后的回调：session 用它重新下发当前题
+// 重连成功后的回调：session 用它重置 seq 并重新下发当前题
 export function onDeviceOpen(cb: () => void) {
 	openHandler = cb
 }
@@ -51,14 +58,17 @@ function buildUrl(addr: string): string {
 export function connect(addr: string) {
 	const ip = addr.trim()
 	if (ip == '') return
-	state.deviceIp = ip
 	manualClose = false
+	// 已经连着同一个地址就什么都不做：关掉再连会触发旧 socket 的 onClose 重连
+	if (connected && ip == state.deviceIp) return
+	state.deviceIp = ip
 	retry = 0
 	doConnect(ip)
 }
 
 export function disconnect() {
 	manualClose = true
+	gen = gen + 1
 	if (retryTimer != 0) {
 		clearTimeout(retryTimer)
 		retryTimer = 0
@@ -71,8 +81,9 @@ export function disconnect() {
 
 function closeSocket() {
 	if (socket != null) {
-		socket.close({})
+		const s = socket
 		socket = null
+		s.close({})
 	}
 }
 
@@ -90,26 +101,44 @@ function scheduleRetry(ip: string) {
 }
 
 function doConnect(ip: string) {
+	gen = gen + 1
+	const g = gen
+	// 换地址/重连前先清掉待触发的重试，否则旧地址的定时器会把新连接顶掉
+	if (retryTimer != 0) {
+		clearTimeout(retryTimer)
+		retryTimer = 0
+	}
+	stopHeartbeat()
 	closeSocket()
+
 	const url = buildUrl(ip)
 	console.log('[DEV] connect ' + url)
 	const s = uni.connectSocket({ url: url })
 
 	socket = s
 	s.onOpen(() => {
+		if (g != gen) return
 		console.log('[DEV] open')
 		connected = true
 		retry = 0
 		lastRx = Date.now()
 		state.deviceOnline = true
-		startHeartbeat()
+		startHeartbeat(g)
 	})
 
 	s.onMessage((res) => {
+		if (g != gen) return
 		lastRx = Date.now()
 		const raw = res.data as string
 		if (raw == null) return
-		const msg = JSON.parse(raw) as UTSJSONObject
+		let msg: UTSJSONObject | null = null
+		try {
+			msg = JSON.parse(raw) as UTSJSONObject
+		} catch (e) {
+			console.log('[DEV] bad json')
+			return
+		}
+		if (msg == null) return
 		const t = msg.getString('t')
 		if (t == 'hello') {
 			// 先回 welcome，再让业务层补发 task，保证设备侧顺序正确
@@ -122,6 +151,7 @@ function doConnect(ip: string) {
 	})
 
 	s.onClose((res) => {
+		if (g != gen) return
 		console.log('[DEV] close code=' + res.code.toString())
 		connected = false
 		state.deviceOnline = false
@@ -130,6 +160,7 @@ function doConnect(ip: string) {
 	})
 
 	s.onError(() => {
+		if (g != gen) return
 		console.log('[DEV] error')
 		connected = false
 		state.deviceOnline = false
@@ -139,9 +170,14 @@ function doConnect(ip: string) {
 	})
 }
 
-function startHeartbeat() {
+function startHeartbeat(g: number) {
 	stopHeartbeat()
 	hbTimer = setInterval(() => {
+		// 代次变了说明这条心跳属于旧连接，直接停掉，别去碰新 socket
+		if (g != gen) {
+			stopHeartbeat()
+			return
+		}
 		if (Date.now() - lastRx > 20000) {
 			// 20s 没有任何帧，判定断线，主动重连
 			closeSocket()
