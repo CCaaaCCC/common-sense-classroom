@@ -2,6 +2,9 @@ import { state } from '../store/index.uts'
 
 const ctx = uni.createInnerAudioContext()
 let token = 0
+// started 只在真正调用 ctx.play() 之前置 true：
+// ctx.stop() 之后、新音频开播之前到达的旧 onEnded/onError 会被 finish() 挡掉，
+// 不会误触发下一段音频的回调（这条竞态用 token 是防不住的）
 let started = false
 let handler: ((ok: boolean) => void) | null = null
 
@@ -24,14 +27,15 @@ ctx.onError(() => {
 export function play(src: string, done: (ok: boolean) => void) {
 	token = token + 1
 	const my = token
+	started = false
 	handler = done
-	started = true
 	ctx.stop()
 	ctx.volume = state.volume
 	ctx.playbackRate = 0.8
 	ctx.src = src
 	setTimeout(() => {
-		if (my != token || !started) return
+		if (my != token) return
+		started = true
 		ctx.play()
 	}, 30)
 }
@@ -41,13 +45,4 @@ export function stop() {
 	started = false
 	handler = null
 	ctx.stop()
-}
-
-export function isPlaying(): boolean {
-	return started
-}
-
-export function destroy() {
-	stop()
-	ctx.destroy()
 }

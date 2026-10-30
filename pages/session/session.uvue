@@ -56,6 +56,21 @@
 
 	const COMMON = '/static/audio/common/'
 
+	// 台词时长上限（ms）：音频实测时长 ÷ 0.8 倍速 + 余量。
+	// 这里只是「回调一直不来」的兜底；文件缺失会立刻走 onError，不会真等满。
+	// 换素材后必须同步这几个值，tools/check/data-check.mjs 会校验。
+	const T_TEACH_MAX = 5200
+	const T_PROMPT_MAX = 4800
+	const T_GREAT_MAX = 2950
+	const T_AGAIN_OK_MAX = 2350
+	const T_LOOK_AGAIN_MAX = 2200
+	const T_ANSWER_MAX = 2750
+	// 反馈阶段的停留时长：按音频实际长度留足，避免夸奖话被 stop() 截断
+	const T_REWARD = 2650
+	const T_RETEACH_OK = 2050
+	const T_REVEAL = 2450
+	const HOLD_OFF = 1300
+
 	const scene = sceneOf(state.cfgSceneId)
 	const questions = ref<Question[]>([])
 	const qIndex = ref(0)
@@ -78,8 +93,10 @@
 		sessionStart = Date.now()
 		buildQuestions()
 		onDeviceMessage(handleDeviceMessage)
-		// 断线重连后，如果正停在答题阶段，重新下发当前题
+		// 断线重连后，如果正停在答题阶段，重新下发当前题。
+		// 同时把 seq 门槛清零：设备重启后 seq 从 1 重新计数，不清零会吞掉开头几次按键。
 		onDeviceOpen(() => {
+			lastSeq = 0
 			if (phase.value == 'ask') armDevice()
 		})
 		enterTeach()
@@ -91,6 +108,12 @@
 		sendIdle()
 		clearAll()
 		stop()
+	})
+
+	// 答题过程中拦截系统返回键：设计上「全屏无返回、不做家长中止本轮」。
+	// 必须同步返回 true 才能阻止默认返回（写成 async 会失效）。
+	onBackPress((): boolean => {
+		return true
 	})
 
 	// 硬件只上报「左/右」，判定与计时都在 App
@@ -211,7 +234,16 @@
 		revealId.value = ''
 		sendDisarm(state.sessionId)
 		const q = questions.value[qIndex.value]
-		say(q.teachAudio, 4000, () => { enterAsk() })
+		say(q.teachAudio, T_TEACH_MAX, () => { enterPrompt() })
+	}
+
+	// 教学句播完先播问句，问句播完才解锁、才开始计时。
+	// 不识字的孩子全靠这两段语音理解题目；以前只播教学句，问句是静音的。
+	function enterPrompt() {
+		if (phase.value != 'teach') return
+		phase.value = 'prompt'
+		const q = questions.value[qIndex.value]
+		say(q.promptAudio, T_PROMPT_MAX, () => { enterAsk() })
 	}
 
 	function armDevice() {
@@ -220,7 +252,7 @@
 	}
 
 	function enterAsk() {
-		if (phase.value != 'teach') return
+		if (phase.value != 'prompt') return
 		phase.value = 'ask'
 		askStart = Date.now()
 		locked.value = false
@@ -250,14 +282,19 @@
 			record(q, optId, hint == 0, hint, ms)
 			phase.value = 'reward'
 			sendReward(state.sessionId, q.id, true, hint)
-			say(hint == 0 ? COMMON + 'great.mp3' : COMMON + 'again_ok.mp3', 900, () => {})
-			later(1500, () => { next() })
+			// 夸奖话按实际时长播完再切题（great 2.49s / again_ok 1.89s @0.8）
+			say(
+				hint == 0 ? COMMON + 'great.mp3' : COMMON + 'again_ok.mp3',
+				hint == 0 ? T_GREAT_MAX : T_AGAIN_OK_MAX,
+				() => {}
+			)
+			later(state.autoVoice ? (hint == 0 ? T_REWARD : T_RETEACH_OK) : HOLD_OFF, () => { next() })
 		} else {
 			if (attempt.value == 1) {
 				phase.value = 'reteach'
 				// 硬件此时是 LATCHED，先解锁；重教结束再重新 arm
 				sendDisarm(state.sessionId)
-				say(COMMON + 'look_again.mp3', 2000, () => {})
+				say(COMMON + 'look_again.mp3', T_LOOK_AGAIN_MAX, () => {})
 				later(2500, () => {
 					attempt.value = 2
 					phase.value = 'ask'
@@ -270,8 +307,8 @@
 				revealId.value = q.answerId
 				phase.value = 'reveal'
 				sendReward(state.sessionId, q.id, false, 2)
-				say(COMMON + 'answer.mp3', 2200, () => {})
-				later(2600, () => { next() })
+				say(COMMON + 'answer.mp3', T_ANSWER_MAX, () => {})
+				later(state.autoVoice ? T_REVEAL : HOLD_OFF, () => { next() })
 			}
 		}
 	}
