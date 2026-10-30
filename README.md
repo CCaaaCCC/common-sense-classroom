@@ -14,11 +14,12 @@
 pages/           7 个页面：home / setup / session / result / book / parent / profiles
 data/            类型定义、16 道题的静态数据（内容唯一事实来源）
 store/           全局 reactive 单例
-utils/           storage / audio / device(WS) / analysis(统计口径)
+utils/           storage / audio / device(WS) / analysis(统计口径) / selfcheck(自检)
 static/scenes/   34 张插画
-static/audio/    38 条语音（edge-tts 生成）
+static/audio/    38 条语音（edge-tts 生成，welcome/finish 预留）
 tools/hardware-sim/   PC 端硬件模拟器（Node + ws）
 tools/firmware/asd_board/  ESP32 固件（Arduino）
+tools/check/     静态数据自检脚本（资源完整性 / 题目结构 / 语音时长）
 docs/            设计方案、开发计划、硬件开发文档
 ```
 
@@ -30,17 +31,28 @@ D:\HBuilderX\cli.exe launch app-android --project "<项目绝对路径>" --playg
 
 # 只编译
 ... --compile true
+
+# 静态数据自检（零依赖，不需要 HBuilderX）
+node tools/check/data-check.mjs
 ```
+
+## 已知限制
+
+- **选项位置固定且偏置**：8 道看图题的正确答案全部在左卡（A 位），16 题中 12 题答案是 A。
+  只按左键的得分：教室 2 题为 100%、4/8 题为 75%；过马路 2 题为 50%、4/8 题为 75%。
+  本轮按需求未改动题目数据，`tools/check/data-check.mjs` 每次会打印这组数字。
+- **答题中按系统返回键**：`session` 用 `onBackPress` 拦截（返回 true），该钩子依赖 Vapor 运行时的支持，需真机确认。
+- **语音倍速固定 0.8**，台词时长上限写在 `pages/session/session.uvue` 顶部，换素材后要同步（自检脚本会校验）。
 
 ## 联调硬件
 
 ```bash
 cd tools/hardware-sim
 npm install
-node server.mjs        # WS :81，网页按钮板 :8082
+node server.mjs        # WS :8081（可用 WS_PORT 改），网页按钮板 :8082
 ```
 
-App → 家长端 → 设置 → 硬件 → 填 `电脑IP`（端口默认 81）。
+App → 家长端 → 设置 → 硬件 → 填 `电脑IP:8081`。真实板子是自带热点 `192.168.4.1`，端口 `81`。
 
 ## 文档
 
